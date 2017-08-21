@@ -2151,17 +2151,19 @@ int im24bitModel(Mixer& m) {
   }
 
   // Detect .bmp file header (24 bit color, not compressed)
-  if (!bpos && buf(54)=='B' && buf(53)=='M'
-      && i4(44)==54 && i4(40)==40 && i4(24)==0) {
-    w=(i4(36)*3)+3&-4;  // image width
-    const int height=i4(32);
-    eoi=pos;
-    if (w<0x30000 && height<0x10000) {
-      eoi=pos+w*height;  // image size in bytes
-      printf("BMP %dx%d ", w/3, height);
-    }
-    else
+  if (!bpos) {
+    int bo=0; // offset of BMP data
+    if (buf(54)=='B' && buf(53)=='M' && i4(44)==54 && i4(40)==40 && i4(24)==0) bo=54;
+    if (buf(66)=='B' && buf(65)=='M' && i4(56)==66 && i4(52)==40 && i4(36)==0) bo=66;
+    if (bo) {
+      w=(i4(bo-18)*3)+3&-4;  // image width
+      const int height=i4(bo-22);
       eoi=pos;
+      if (w<0x30000 && height<0x10000) {
+        eoi=pos+w*height;  // image size in bytes
+        printf("BMP %dx%d ", w/3, height);
+      }
+    }
   }
 
   // Detect .tif file header (24 bit color, not compressed).
@@ -2623,18 +2625,6 @@ struct HUF {U32 min, max; int val;}; // Huffman decode tables
   // huf[Tc][Th][m] is the minimum, maximum+1, and pointer to codes for
   // coefficient type Tc (0=DC, 1=AC), table Th (0-3), length m+1 (m=0-15)
 
-void update_k(int v1, int v2, int &k1, int &k2) {
-  int a, b, c;
-  a=abs(v1*(k1-1)+v2*(8-(k1-1)))/8;
-  b=abs(v1*(k1+0)+v2*(8-(k1+0)))/8;
-  c=abs(v1*(k1+1)+v2*(8-(k1+1)))/8;
-  if (k1==0) a=b; else if (k1==8) c=b;
-  if (a<b && a<c) k2--;
-  if (c<a && c<b) k2++;
-  if (k2<-2) {k1--;k2=0;}
-  if (k2>+2) {k1++;k2=0;}
-}
-
 int jpegModel(Mixer& m) {
 
   // State of parser
@@ -2683,8 +2673,8 @@ int jpegModel(Mixer& m) {
   static int cpos=0;  // position in cbuf
   static U32 huff1=0, huff2=0, huff3=0, huff4=0;  // hashes of last codes
   static int rs1, rs2, rs3, rs4;  // last 4 RS codes
-  static int ssum=0, ssum1=0, ssum2=0, ssum3=0, ssum4=0;
-    // sum of S in RS codes in block and last 4 values
+  static int ssum=0, ssum1=0, ssum2=0, ssum3=0;
+    // sum of S in RS codes in block and sum of S in first component
 
   static IntBuf cbuf2(0x20000);
   static Array<int> adv_pred(7), sumu(8), sumv(8);
@@ -2706,7 +2696,7 @@ int jpegModel(Mixer& m) {
   // Be sure to quit on a byte boundary
   if (!bpos) next_jpeg=jpeg>1;
   if (bpos && !jpeg) return next_jpeg;
-  if (!bpos && app>0) --app;
+  if (!bpos && app>=0) --app;
   if (app>0) return next_jpeg;
   if (!bpos) {
 
@@ -2748,7 +2738,7 @@ int jpegModel(Mixer& m) {
     // Detect JPEG (SOI, APPx)
     if (!jpeg && buf(4)==FF && buf(3)==SOI && buf(2)==FF && buf(1)>>4==0xe) {
       jpeg=1;
-      app=sos=sof=htsize=data=mcusize=linesize=0;
+      sos=sof=htsize=data=mcusize=linesize=0, app=2;
       huffcode=huffbits=huffsize=mcupos=cpos=0, rs=-1;
       memset(&huf[0], 0, huf.size()*sizeof(HUF));
       memset(&pred[0], 0, pred.size()*sizeof(int));
@@ -2960,10 +2950,13 @@ int jpegModel(Mixer& m) {
             jassert((cpos&63)==0);
             cbuf2[cpos]=dc;
             cbuf[cpos++]=dc+1023>>3;
-            ssum4=ssum3;
-            ssum3=ssum2;
-            ssum2=ssum1;
-            ssum1=ssum;
+            if ((mcupos>>6)==0) {
+              ssum1=0;
+              ssum2=ssum3;
+            } else {
+              if (color[(mcupos>>6)-1]==color[0]) ssum1+=(ssum3=ssum);
+              ssum2=ssum1;
+            }
             ssum=rs;
           }
           jassert(mcupos>=0 && mcupos<=mcusize);
@@ -2973,47 +2966,31 @@ int jpegModel(Mixer& m) {
           }
           huffcode=huffsize=huffbits=0, rs=-1;
 
-
           // UPDATE_ADV_PRED !!!!
           {
             const int acomp=mcupos>>6, q=64*qmap[acomp];
             const int zz=mcupos&63, cpos_dc=cpos-zz;
-            const static int we[8]={181, 282, 353, 456, 568, 671, 742, 767};
-            static int sumu2[8], sumv2[8], sumu3[8], sumv3[8], kx[32];
-            if (zz == 0) {
-              for (int i=0; i<8; i++) {
-                update_k(sumv2[i], sumv3[i], kx[i], kx[i+16]);
-                update_k(sumu2[i], sumu3[i], kx[i+8], kx[i+24]);
-                sumu2[i]=sumv2[i]=sumu3[i]=sumv3[i]=0;
-              }
+            if (zz==0) {
+              for (int i=0; i<8; ++i) sumu[i]=sumv[i]=0;
               int cpos_dc_ls_acomp = cpos_dc-ls[acomp];
               int cpos_dc_mcusize_width = cpos_dc-mcusize*width;
-              for (int i=0; i<64; i++) {
-                sumu2[zzu[i]]+=we[zzv[i]]*(zzv[i]&1?-1:+1)*(qtab[q+i]+1)*cbuf2[cpos_dc_mcusize_width+i];
-                sumv2[zzv[i]]+=we[zzu[i]]*(zzu[i]&1?-1:+1)*(qtab[q+i]+1)*cbuf2[cpos_dc_ls_acomp+i];
-                sumu3[zzu[i]]+=(zzv[i]?(zzv[i]&1?-256:256):181)*(qtab[q+i]+1)*cbuf2[cpos_dc_mcusize_width+i];
-                sumv3[zzv[i]]+=(zzu[i]?(zzu[i]&1?-256:256):181)*(qtab[q+i]+1)*cbuf2[cpos_dc_ls_acomp+i];
+              for (int i=0; i<64; ++i) {
+                sumu[zzu[i]]+=(zzv[i]&1?-1:1)*(zzv[i]?16*(16+zzv[i]):181)*(qtab[q+i]+1)*cbuf2[cpos_dc_mcusize_width+i];
+                sumv[zzv[i]]+=(zzu[i]&1?-1:1)*(zzu[i]?16*(16+zzu[i]):181)*(qtab[q+i]+1)*cbuf2[cpos_dc_ls_acomp+i];
               }
-            } else {
-              sumu2[zzu[zz-1]]-=we[zzv[zz-1]]*(qtab[q+zz-1]+1)*cbuf2[cpos-1];
-              sumv2[zzv[zz-1]]-=we[zzu[zz-1]]*(qtab[q+zz-1]+1)*cbuf2[cpos-1];
-              sumu3[zzu[zz-1]]-=(zzv[zz-1]?256:181)*(qtab[q+zz-1]+1)*cbuf2[cpos-1];
-              sumv3[zzv[zz-1]]-=(zzu[zz-1]?256:181)*(qtab[q+zz-1]+1)*cbuf2[cpos-1];
             }
-            for (int i=0; i<8; ++i) {
-              int k=kx[i];
-              sumv[i]=(sumv2[i]*k+sumv3[i]*(8-k))/8;
-              k=kx[i+8];
-              sumu[i]=(sumu2[i]*k+sumu3[i]*(8-k))/8;
+            else {
+              sumu[zzu[zz-1]]-=(zzv[zz-1]?16*(16+zzv[zz-1]):181)*(qtab[q+zz-1]+1)*cbuf2[cpos-1];
+              sumv[zzv[zz-1]]-=(zzu[zz-1]?16*(16+zzu[zz-1]):181)*(qtab[q+zz-1]+1)*cbuf2[cpos-1];
             }
 
             for (int i=0; i<3; ++i)
               for (int st=0; st<8; ++st) {
-                const int zz2 = min(zz+st, 63);
+                const int zz2=min(zz+st, 63);
                 int p=(sumu[zzu[zz2]]*i+sumv[zzv[zz2]]*(2-i))/2;
-                p/=(qtab[q+zz2]+1)*181;
-                if (zz2==0) p-=cbuf2[cpos_dc-ls[acomp]], p=(p<0?-1:+1)*ilog(14*abs(p)+1)/10;
-                else p=(p<0?-1:+1)*ilog(10*abs(p)+1)/10;
+                p/=(qtab[q+zz2]+1)*181*(16+zzv[zz2])*(16+zzu[zz2])/256;
+                if (zz2==0) p-=cbuf2[cpos_dc-ls[acomp]];
+                p=(p<0?-1:+1)*ilog(10*abs(p)+1)/10;
                 if (st==0) {
                   adv_pred[i]=p;
                   adv_pred[i+4]=p/4;
@@ -3025,10 +3002,7 @@ int jpegModel(Mixer& m) {
                 }
               }
             x=2*sumu[zzu[zz]]+2*sumv[zzv[zz]];
-            for (int i=0; i<8; ++i) {
-              if (zzu[zz]<i) x-=sumu[i];
-              if (zzv[zz]<i) x-=sumv[i];
-            }
+            for (int i=0; i<8; ++i) x-=(zzu[zz]<i)*sumu[i]+(zzv[zz]<i)*sumv[i];
             x/=(qtab[q+zz]+1)*181;
             if (zz==0) x-=cbuf2[cpos_dc-ls[acomp]];
             adv_pred[3]=(x<0?-1:+1)*ilog(10*abs(x)+1)/10;
@@ -3039,7 +3013,7 @@ int jpegModel(Mixer& m) {
               else {
                 const int zz2=zpos[zzu[zz]+8*zzv[zz]-(i&1?8:1)*b];
                 x=(qtab[q+zz2]+1)*cbuf2[cpos_dc+zz2]/(qtab[q+zz]+1);
-                x=(x<0?-1:+1)*ilog(8*abs(x)+1)/8;
+                x=(x<0?-1:+1)*ilog(10*abs(x)+1)/10;
               }
               lcp[i]=x;
             }
@@ -3082,16 +3056,16 @@ int jpegModel(Mixer& m) {
   // Update context
   const int comp=color[mcupos>>6];
   const int coef=(mcupos&63)|comp<<6;
-  const int hc=(huffcode*2+(comp==0))|1<<(huffbits+1);
+  const int hc=(huffcode*4+((mcupos&63)==0)*2+(comp==0))|1<<(huffbits+2);
   static int hbcount=2;
   if (++hbcount>2 || huffbits==0) hbcount=0;
   jassert(coef>=0 && coef<256);
   const int zu=zzu[mcupos&63], zv=zzv[mcupos&63];
   if (hbcount==0) {
     int n=0;
-    cxt[0]=hash(++n, hc, coef, adv_pred[2]);
-    cxt[1]=hash(++n, hc, coef, adv_pred[0]);
-    cxt[2]=hash(++n, hc, coef, adv_pred[1]);
+    cxt[0]=hash(++n, hc, coef, adv_pred[2], ssum2>>6);
+    cxt[1]=hash(++n, hc, coef, adv_pred[0], ssum2>>6);
+    cxt[2]=hash(++n, hc, coef, adv_pred[1], ssum2>>6);
     cxt[3]=hash(++n, hc, rs1, adv_pred[2]);
     cxt[4]=hash(++n, hc, rs1, adv_pred[0]);
     cxt[5]=hash(++n, hc, rs1, adv_pred[1]);
@@ -3099,16 +3073,16 @@ int jpegModel(Mixer& m) {
     cxt[7]=hash(++n, hc, cbuf[cpos-width*mcusize], adv_pred[3]);
     cxt[8]=hash(++n, hc, cbuf[cpos-ls[mcupos>>6]], adv_pred[3]);
     cxt[9]=hash(++n, hc, lcp[0], lcp[1], adv_pred[1]);
-    cxt[10]=hash(++n, hc, lcp[0], lcp[1], coef);
+    cxt[10]=hash(++n, hc, lcp[0], lcp[1], mcupos&63);
     cxt[11]=hash(++n, hc, zu, lcp[0], lcp[2]/3);
     cxt[12]=hash(++n, hc, zv, lcp[1], lcp[3]/3);
-    cxt[13]=hash(++n, hc, mcupos>>2, min(3, mcupos&63));
-    cxt[14]=hash(++n, hc, coef, column>>1);
-    cxt[15]=hash(++n, hc, column>>2, lcp[0]+256*(lcp[2]/3), lcp[1]+256*(lcp[3]/3));
-    cxt[16]=hash(++n, hc, ssum>>4, coef);
-    cxt[17]=hash(++n, hc, rs1, coef);
-    cxt[18]=hash(++n, hc, mcupos>>3, ssum3>>3, adv_pred[3]);
-    cxt[19]=hash(++n, hc, lcp[0]/3, lcp[1]/3, adv_pred[5]);
+    cxt[13]=hash(++n, hc, mcupos>>1);
+    cxt[14]=hash(++n, hc, mcupos&63, column>>1);
+    cxt[15]=hash(++n, hc, column>>3, lcp[0]+256*(lcp[2]/4), lcp[1]+256*(lcp[3]/4));
+    cxt[16]=hash(++n, hc, ssum>>3, mcupos&63);
+    cxt[17]=hash(++n, hc, rs1, mcupos&63);
+    cxt[18]=hash(++n, hc, mcupos>>3, ssum2>>5, adv_pred[3]);
+    cxt[19]=hash(++n, hc, lcp[0]/4, lcp[1]/4, adv_pred[5]);
     cxt[20]=hash(++n, hc, cbuf[cpos-width*mcusize], adv_pred[6]);
     cxt[21]=hash(++n, hc, cbuf[cpos-ls[mcupos>>6]], adv_pred[4]);
     cxt[22]=hash(++n, hc, adv_pred[2]);
@@ -3134,7 +3108,7 @@ int jpegModel(Mixer& m) {
   m1.set(hc&511, 512);
   int pr=m1.p();
   m.add(stretch(pr));
-  pr=a1.p(pr, hc&511|(adv_pred[1]&63)<<9, 1023);
+  pr=a1.p(pr, hc&511|(adv_pred[1]==0?0:(abs(adv_pred[1])-4)&63)<<9, 1023);
   pr=a2.p(pr, hc&255|coef<<8, 255);
   m.add(stretch(pr));
   return 2+(hc&255);
@@ -4093,11 +4067,16 @@ int decode_exe(Encoder& en) {
 // <type> <size> and call encode_X to convert to type X.
 void encode(FILE* in, FILE* out, int n) {
   Filetype type=DEFAULT;
+  int n1=n;
   long begin=ftell(in);
   while (n>0) {
     Filetype nextType=detect(in, n, type);
     long end=ftell(in);
     fseek(in, begin, SEEK_SET);
+    if (end>n1) { // if some detection reports longer then actual size file is
+      end=begin+1;
+      type=DEFAULT;
+    }
     int len=int(end-begin);
     if (len>0) {
       fprintf(out, "%c%c%c%c%c", type, len>>24, len>>16, len>>8, len);
