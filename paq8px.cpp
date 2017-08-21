@@ -3946,29 +3946,42 @@ int decode_cd(FILE *in, int size, FILE *out, FMode mode, int &diffFound) {
 // 24-bit image data transform:
 // simple color transform (b, g, r) -> (g, g-r, g-b)
 
-void encode_bmp(FILE* in, FILE* out, int len) {
+void encode_bmp(FILE* in, FILE* out, int len, int width) {
   int r,g,b;
-  for (int i=0; i<len/3; i++) {
-    b=fgetc(in), g=fgetc(in), r=fgetc(in);
-    fputc(g, out);
-    fputc(g-r, out);
-    fputc(g-b, out);
+  for (int i=0; i<len/width; i++) {
+    for (int j=0; j<width/3; j++) {
+      b=fgetc(in), g=fgetc(in), r=fgetc(in);
+      fputc(g, out);
+      fputc(g-r, out);
+      fputc(g-b, out);
+    }
+    for (int j=0; j<width%3; j++) fputc(fgetc(in), out);
   }
 }
 
-int decode_bmp(Encoder& en, int size, FILE *out, FMode mode, int &diffFound) {
+int decode_bmp(Encoder& en, int size, int width, FILE *out, FMode mode, int &diffFound) {
   int r,g,b;
-  for (int i=0; i<size/3; i++) {
-    b=en.decompress(), g=en.decompress(), r=en.decompress();
-    if (mode==FDECOMPRESS) {
-      fputc(b-r, out);
-      fputc(b, out);
-      fputc(b-g, out);
+  for (int i=0; i<size/width; i++) {
+    for (int j=0; j<width/3; j++) {
+      b=en.decompress(), g=en.decompress(), r=en.decompress();
+      if (mode==FDECOMPRESS) {
+        fputc(b-r, out);
+        fputc(b, out);
+        fputc(b-g, out);
+      }
+      else if (mode==FCOMPARE) {
+        if (((b-r)&255)!=getc(out) && !diffFound) diffFound=i+1;
+        if (b!=getc(out) && !diffFound) diffFound=i+2;
+        if (((b-g)&255)!=getc(out) && !diffFound) diffFound=i+3;
+      }
     }
-    else if (mode==FCOMPARE) {
-      if (((b-r)&255)!=getc(out) && !diffFound) diffFound=i+1;
-      if (b!=getc(out) && !diffFound) diffFound=i+2;
-      if (((b-g)&255)!=getc(out) && !diffFound) diffFound=i+3;
+    for (int j=0; j<width%3; j++) {
+      if (mode==FDECOMPRESS) {
+        fputc(en.decompress(), out);
+      }
+      else if (mode==FCOMPARE) {
+        if (en.decompress()!=getc(out) && !diffFound) diffFound=i+1;
+      }
     }
   }
   return size;
@@ -4105,7 +4118,7 @@ void compressRecursive(FILE *in, long n, Encoder &en, char *blstr, int it=0, int
       if (type==EXE || type==CD || type==IMAGE24) {
         tmp=tmpfile();  // temporary encoded file
         if (!tmp) perror("tmpfile"), quit();
-        if (type==IMAGE24) encode_bmp(in, tmp, len);
+        if (type==IMAGE24) encode_bmp(in, tmp, len, info);
         else if (type==EXE) encode_exe(in, tmp, len, begin);
         else if (type==CD) encode_cd(in, tmp, len, info);
         const long tmpsize=ftell(tmp);
@@ -4114,7 +4127,7 @@ void compressRecursive(FILE *in, long n, Encoder &en, char *blstr, int it=0, int
         en.setFile(tmp);
         fseek(in, begin, SEEK_SET);
         int diffFound=0;
-        if (type==IMAGE24) decode_bmp(en, tmpsize, in, FCOMPARE, diffFound);
+        if (type==IMAGE24) decode_bmp(en, tmpsize, info, in, FCOMPARE, diffFound);
         else if (type==EXE) decode_exe(en, tmpsize, in, FCOMPARE, diffFound);
         else if (type==CD) decode_cd(tmp, tmpsize, in, FCOMPARE, diffFound);
 
@@ -4182,7 +4195,7 @@ bool makedir(const char* dir) {
 int decompressRecursive(FILE *out, long size, Encoder& en, FMode mode, int it=0, int s1=0, int s2=0) {
   Filetype type;
   long len, i=0;
-  int diffFound=0;
+  int diffFound=0, info;
   FILE *tmp;
   s2+=size;
   while (i<size) {
@@ -4192,8 +4205,10 @@ int decompressRecursive(FILE *out, long size, Encoder& en, FMode mode, int it=0,
     len|=en.decompress()<<8;
     len|=en.decompress();
 
-    if (type==IMAGE1 || type==IMAGE8 || type==IMAGE24 || type==AUDIO) for (int i=0; i<4; ++i) en.decompress();
-    if (type==IMAGE24) len=decode_bmp(en, len, out, mode, diffFound);
+    if (type==IMAGE1 || type==IMAGE8 || type==IMAGE24 || type==AUDIO) {
+      info=0; for (int i=0; i<4; ++i) { info<<=8; info+=en.decompress(); }
+    }
+    if (type==IMAGE24) len=decode_bmp(en, len, info, out, mode, diffFound);
     else if (type==EXE) len=decode_exe(en, len, out, mode, diffFound, s1, s2);
     else if (type==CD) {
       tmp=tmpfile();
