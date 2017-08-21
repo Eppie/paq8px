@@ -1516,17 +1516,26 @@ inline  U8* BH<B>::operator[](U32 i) {
 // Predict to mixer m from bit history state s, using sm to map s to
 // a probability.
 inline int mix2(Mixer& m, int s, StateMap& sm) {
+  int v[5];
   int p1=sm.p(s);
   int n0=-!nex(s,2);
   int n1=-!nex(s,3);
   int st=stretch(p1)>>2;
-  m.add(st);
+  v[0]=st;
   p1>>=4;
   int p0=255-p1;
-  m.add(p1-p0);
-  m.add(st*(n1-n0));
-  m.add((p1&n0)-(p0&n1));
-  m.add((p1&n1)-(p0&n0));
+  v[1]=p1-p0;
+  v[2]=st*(n1-n0);
+  v[3]=(p1&n0)-(p0&n1);
+  v[4]=(p1&n1)-(p0&n0);
+  int d3=v[1]-v[3];
+  int d4=v[1]-v[4];
+  m.add(v[3]);
+  m.add(v[4]);
+  m.add(d3);
+  m.add(d4);
+  m.add(v[0]);
+  m.add(v[2]);
   return s>0;
 }
 
@@ -3180,7 +3189,7 @@ typedef enum {DEFAULT, JPEG, HDR, IMAGE1, IMAGE8, IMAGE24, AUDIO, EXE, CD} Filet
 int contextModel2() {
   static ContextMap cm(MEM*32, 9);
   static RunContextMap rcm7(MEM), rcm9(MEM), rcm10(MEM);
-  static Mixer m(845, 3095, 7);
+  static Mixer m(1014, 3095, 7);
   static U32 cxt[16];  // order 0-11 contexts
   static Filetype ft2,filetype=DEFAULT;
   static int size=0;  // bytes remaining in block
@@ -4367,7 +4376,7 @@ int expand(String& archive, const char* fname, int base) {
         String d(fname);
         d+="/";
         d+=dp->d_name;
-        result+=expand(archive, s, d.c_str(), base);
+        result+=expand(archive, d.c_str(), base);
       }
     }
     if (errno) perror("readdir");
