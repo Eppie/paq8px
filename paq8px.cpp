@@ -3520,12 +3520,24 @@ U32 edc_compute(const U8  *src, int size) {
   return edc;
 }
 
-int expand_cd_sector(U8 *data, int mode) {
+int expand_cd_sector(U8 *data, int a, int mode) {
   U8 d2[2352];
   eccedc_init();
   d2[0]=d2[11]=0;
   for (int i=1; i<11; i++) d2[i]=255;
-  for (int i=12; i<15; i++) d2[i]=data[i];
+  if (a==-1) for (int i=12; i<15; i++) d2[i]=data[i]; else {
+    int c1=(a&15)+((a>>4)&15)*10;
+    int c2=((a>>8)&15)+((a>>12)&15)*10;
+    int c3=((a>>16)&15)+((a>>20)&15)*10;
+    c1=(c1+1)%75;
+    if (c1==0) {
+      c2=(c2+1)%60;
+      if (c2==0) c3++;
+    }
+    d2[12]=(c3%10)+16*(c3/10);
+    d2[13]=(c2%10)+16*(c2/10);
+    d2[14]=(c1%10)+16*(c1/10);
+  }
   d2[15]=1;
   for (int i=16; i<2064; i++) d2[i]=data[i];
   U32 edc=edc_compute(d2, 2064);
@@ -3561,7 +3573,7 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
   int tga=0,tgax,tgay,tgaz,tgat;  // For TGA detection
   int pgm=0,pgmcomment=0,pgmw=0,pgmh=0,pgm_ptr=0,pgmc=0,pgmn=0;  // For PBM, PGM, PPM detection
   char pgm_buf[32];
-  int cdi=0;  // For CD sectors detection
+  int cdi=0,cda;  // For CD sectors detection
   U8 data[2352];
 
   // For image detection
@@ -3577,7 +3589,7 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
     buf0=buf0<<8|c;
 
     // CD sectors detection (mode 1 - 2352 bytes)
-    if (buf1==0x00ffffff && buf0==0xffffffff && !cdi) cdi=i;
+    if (buf1==0x00ffffff && buf0==0xffffffff && !cdi) cdi=i,cda=-1;
     if (cdi && i>cdi) {
       const int p=(i-cdi)%2352;      
       if (p==8 && (buf1!=0xffffff00 || (buf0&0xff)!=0x01)) cdi=0;
@@ -3587,9 +3599,9 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
         fseek(in, start+i-2352-7, SEEK_SET);
         fread(data, 1, 2352, in);
         fseek(in, savedpos, SEEK_SET);
-        if (!expand_cd_sector(data, 1)) {
+        if (!expand_cd_sector(data, cda, 1)) {
           if (type!=CD) return fseek(in, start+cdi-7, SEEK_SET), CD;
-          if (type==CD && i-cdi>=38535168) return fseek(in, start+i-7, SEEK_SET), CD;
+          cda=(data[12]<<16)+(data[13]<<8)+data[14];
         } else cdi=0;
       }
       if (!cdi && type==CD) return fseek(in, start+(p==0?i-2352:i-p)-7, SEEK_SET), DEFAULT;
@@ -3852,7 +3864,6 @@ int decode_default(Encoder& en) {
   return en.decompress();
 }
 
-
 void encode_cd(FILE* in, FILE* out, int len) {
   const int BLOCK=2352;
   Array<U8> blk(BLOCK);
@@ -3862,7 +3873,7 @@ void encode_cd(FILE* in, FILE* out, int len) {
       fwrite(&blk[0], 1, len-offset, out);
     } else {
       fread(&blk[0], 1, BLOCK, in);
-      fwrite(&blk[12], 1, 3, out);
+      if (offset==0) fwrite(&blk[12], 1, 3, out);
       fwrite(&blk[16], 1, 2048, out);
     }
   }
@@ -3876,11 +3887,15 @@ int decode_cd(Encoder& en, int size) {
   size2--;
   state%=BLOCK;
   if (state==0 && size2>=BLOCK-1) {
-    blk[12]=en.decompress();
-    blk[13]=en.decompress();
-    blk[14]=en.decompress();
+    int a;
+    if (size2==size-1) {
+      blk[12]=en.decompress();
+      blk[13]=en.decompress();
+      blk[14]=en.decompress();
+      a=-1;
+    } else a=(blk[12]<<16)+(blk[13]<<8)+blk[14];
     for (int i=0;i<2048;i++) blk[16+i]=en.decompress();
-    expand_cd_sector(blk, 0);
+    expand_cd_sector(blk, a, 0);
   } else if (state==0) {
     return en.decompress();
   }
