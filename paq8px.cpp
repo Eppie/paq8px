@@ -3884,7 +3884,7 @@ void compress(const char* filename, long filesize, Encoder& en) {
           fprintf(tmp, "%c%c%c%c", info>>24, info>>16, info>>8, info);
           encode_default(in, tmp, len);
           break;
-        case EXE:  
+        case EXE:
           printf("\n");
           encode_exe(in, tmp, len, begin);
           break;
@@ -3893,8 +3893,8 @@ void compress(const char* filename, long filesize, Encoder& en) {
           encode_default(in, tmp, len);
           break;
       }
+      printf("Compressing... ");
     }
-    printf("Compressing... ");
 
     // Test transform of current detected and encoded block
     rewind(tmp);
