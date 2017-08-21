@@ -635,28 +635,6 @@ Improved TIFF image detection
 #define DEFAULT_OPTION 5
 #endif
 
-#ifdef LPROUND_ON
-
-#ifdef round
-#undef round
-#endif
-
-// Internal C99 round function
-// Added by LovePimple
-// 19th June 2009
-//
-// Compile with '-DLPROUND_ON' to enable this function.
-
-double round(double x)
-{
-  double y;
-  y = floor(x);
-  if(x - y == 0.5 && y > 0) y += 1;
-  else if(x - y > 0.5) y += 1.;
-  return y;
-}
-#endif
-
 // 8, 16, 32 bit unsigned types (adjust as appropriate)
 typedef unsigned char  U8;
 typedef unsigned short U16;
@@ -2833,7 +2811,7 @@ void wavModel(Mixer& m, int info) {
   static SmallStationaryContextMap scm1(SC), scm2(SC), scm3(SC), scm4(SC), scm5(SC), scm6(SC), scm7(SC);
   static ContextMap cm(MEM*4, 10);
   static int bits, channels, w;
-  static int z1, z2, z3, z4, z5, z6;
+  static int z1, z2, z3, z4, z5, z6, z7;
 
   if (!bpos && !blpos) {
     bits=((info%4)/2)*8+8;
@@ -2845,7 +2823,7 @@ void wavModel(Mixer& m, int info) {
       for (k=0; k<=S+D; k++) for (l=0; l<=S+D; l++) F[k][l][j]=0, L[k][l]=0;
       F[1][0][j]=1;
       n[j]=counter[j]=pr[2][j]=pr[1][j]=pr[0][j]=0;
-      z1=z2=z3=z4=z5=z6=0;
+      z1=z2=z3=z4=z5=z6=z7=0;
     }
   }
   // Select previous samples and predicted sample as context
@@ -2854,7 +2832,7 @@ void wavModel(Mixer& m, int info) {
     const int msb=ch%(bits>>3);
     const int chn=ch/(bits>>3);
     if (!msb) {
-      z1=X1(1), z2=X1(2), z3=X1(3), z4=X1(4), z5=X1(5); z6=X2(1)+X1(1)-X2(2);
+      z1=X1(1), z2=X1(2), z3=X1(3), z4=X1(4), z5=X1(5);
       k=X1(1);
       for (l=0; l<=min(S,counter[chn]-1); l++) { F[0][l][chn]*=a; F[0][l][chn]+=X1(l+1)*k; }
       for (l=1; l<=min(D,counter[chn]); l++) { F[0][l+S][chn]*=a; F[0][l+S][chn]+=X2(l+1)*k; }
@@ -2862,21 +2840,22 @@ void wavModel(Mixer& m, int info) {
         k=X2(2);
         for (l=1; l<=min(D,counter[chn]); l++) { F[S+1][l+S][chn]*=a; F[S+1][l+S][chn]+=X2(l+1)*k; }
         for (l=1; l<=min(S,counter[chn]-1); l++) { F[l][S+1][chn]*=a; F[l][S+1][chn]+=X1(l+1)*k; }
-      }
+        z6=X2(1)+X1(1)-X2(2), z7=X2(1);
+      } else z6=2*X1(1)-X1(2), z7=X1(1);
       if (++n[chn]==(256>>level)) {
         if (channels==1) for (k=1; k<=S+D; k++) for (l=k; l<=S+D; l++) F[k][l][chn]=(F[k-1][l-1][chn]-X1(k)*X1(l))*a2;
         else for (k=1; k<=S+D; k++) if (k!=S+1) for (l=k; l<=S+D; l++) if (l!=S+1) F[k][l][chn]=(F[k-1][l-1][chn]-(k-1<=S?X1(k):X2(k-S))*(l-1<=S?X1(l):X2(l-S)))*a2;
         for (i=1; i<=S+D; i++) {
            sum=F[i][i][chn];
            for (k=1; k<i; k++) sum-=L[i][k]*L[i][k];
-           sum=round(sum);
+           sum=floor(sum+0.5);
            sum=1/sum;
            if (sum>0) {
              L[i][i]=sqrt(sum);
              for (j=(i+1); j<=S+D; j++) {
                sum=F[i][j][chn];
                for (k=1; k<i; k++) sum-=L[j][k]*L[i][k];
-               sum=round(sum);
+               sum=floor(sum+0.5);
                L[j][i]=sum*L[i][i];
              }
            } else break;
@@ -2919,22 +2898,22 @@ void wavModel(Mixer& m, int info) {
       cm.set(hash(++i, z1*2-z2&0xff));
       cm.set(hash(++i, z6&0xff));
     } else {
-      cm.set(hash(++i, y1+z1-y2>>8));
-      cm.set(hash(++i, y1>>8));
-      cm.set(hash(++i, y1+z1*2-y2*2-z2+y3>>8));
-      cm.set(hash(++i, y1>>8, z1-y2+z2-y3>>9));
+      cm.set(hash(++i, y1-x1+z1-y2>>8));
+      cm.set(hash(++i, y1-x1>>8));
+      cm.set(hash(++i, y1-x1+z1*2-y2*2-z2+y3>>8));
+      cm.set(hash(++i, y1-x1>>8, z1-y2+z2-y3>>9));
       cm.set(hash(++i, z1>>12));
       cm.set(hash(++i, x1));
       cm.set(hash(++i, x1>>7, x2, x3>>7));
       cm.set(hash(++i, z1>>8));
       cm.set(hash(++i, z1*2-z2>>8));
-      cm.set(hash(++i, z1*3-z2*3+z3>>8));
+      cm.set(hash(++i, y1>>8));
     }
     scm1.set(t*ch);
     scm2.set(t*(z1-x1+y1>>9)&0xff);
     scm3.set(t*(z1*2-z2-x1+y1>>8)&0xff);
     scm4.set(t*(z1*3-z2*3+z3-x1>>7)&0xff);
-    scm5.set(t*(z1+s2(w-1)-x1+y1*2>>10)&0xff);
+    scm5.set(t*(z1+z7-x1+y1*2>>10)&0xff);
     scm6.set(t*(z1*4-z2*6+z3*4-z4-x1>>7)&0xff);
     scm7.set(t*(z1*5-z2*10+z3*10-z4*5+z5-x1+y1>>9)&0xff);
   }
@@ -2948,6 +2927,7 @@ void wavModel(Mixer& m, int info) {
   scm6.mix(m);
   scm7.mix(m);
   cm.mix(m);
+  if (level>=4) recordModel(m);
   static int col=0;
   if (++col>=w*8) col=0;
   m.set(3, 8);
