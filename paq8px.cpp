@@ -2101,13 +2101,13 @@ inline int sqrbuf(int i) {
 }
 
 int im24bitModel(Mixer& m) {
-  static int w = 0;   // width of image in bytes (pixels * 3)
-  static int eoi=0;   // end of image
-  static U32 tiff=0;  // offset of tif header
-  static int ppm=0;   // offset of pgm header
-  static int ppm_hdr[3];  // 0 - Width, 1 - Height, 2 - Max value
-  static int ppm_ptr;     // which record in header should be parsed next
-  int isws;               // is white space
+  static U32 tiff=0;   // offset of tif header
+  static int w=0, h=0; // size of image in bytes (pixels)
+  static int eoi=0;    // end of image
+  static int ppm=0;    // offset of ppm header
+  static int ppm_hdr[3]; // 0 - Width, 1 - Height, 2 - Max value
+  static int ppm_ptr;    // which record in header should be parsed next
+  int isws;              // is white space
   char v_buf[32];
   int v_ptr;
   const int SC=0x20000;
@@ -2117,7 +2117,7 @@ int im24bitModel(Mixer& m) {
 
   // Detect .ppm header
   if (!bpos && pos>eoi) {
-    if (buf(3)=='P' && buf(2)=='6' && ISWHITESPACE(1)) {
+    if (!ppm && buf(3)=='P' && buf(2)=='6' && ISWHITESPACE(1)) {
       ppm=pos;
       ppm_ptr=0;
       return w=0; // PPM header just detected, not enough info to get header yet
@@ -2125,33 +2125,35 @@ int im24bitModel(Mixer& m) {
       for (int i=ppm; i<pos-1 && ppm_ptr<3; i++) {
         while ((isws=ISWHITESPACE(pos-i)) && i<pos-1) i++;  // Skip white spaces
         if (isws) break; // buffer end is reached
-        if (buf(pos-i)=='#') { // Skip comments
+        if (buf(pos-i)=='#') {
           do {i++;} while(!ISCRLF(pos-i) && i<pos-1);
         } else {
           v_ptr=0;  // Get header record as a string into v_buf
           do {
             v_buf[v_ptr++]=buf(pos-i);
             i++;
-          } while(!(isws=ISWHITESPACE(pos-i)) && i<pos-1 && v_ptr<32);
+          } while (!(isws=ISWHITESPACE(pos-i)) && i<pos-1 && v_ptr<32);
           if (isws) {
             ppm_hdr[ppm_ptr++]=atoi(v_buf);
             ppm=i; // move pointer
           }
         }
       }
-      if (ppm_ptr==3) { // Header is finished, next byte is first pixel
-        if (ppm_hdr[2] <= 255 && ppm_hdr[0]>0 && ppm_hdr[1]>0) {
-          w=ppm_hdr[0];
-          printf("PPM %dx%d",w,ppm_hdr[1]);
+      if (ppm_ptr==3) {
+        w=ppm_hdr[0];
+        h=ppm_hdr[1];
+        if (ppm_hdr[2]<=255 && w<0x30000 && h<0x10000 && w>0 && h>0) {
+          printf("PPM %dx%d ",w,h);
           w*=3;
-          eoi=pos+w*ppm_hdr[1];
+          eoi=pos+w*h;
         }
-      }
+        ppm=0;
+      } else if (pos-ppm>1024) ppm=0; // maximal length of header
     }
   }
 
   // Detect .bmp file header (24 bit color, not compressed)
-  if (!bpos) {
+  if (!bpos && pos>eoi) {
     int bo=0; // offset of BMP data
     if (buf(54)=='B' && buf(53)=='M' && i4(44)==54 && i4(40)==40 && i4(24)==0) bo=54;
     if (buf(66)=='B' && buf(65)=='M' && i4(56)==66 && i4(52)==40 && i4(36)==0) bo=66;
@@ -2168,7 +2170,7 @@ int im24bitModel(Mixer& m) {
 
   // Detect .tif file header (24 bit color, not compressed).
   // Parsing is crude, won't work with weird formats.
-  if (!bpos) {
+  if (!bpos && pos>eoi) {
     if (c4==0x49492a00) tiff=pos;  // Intel format only
     if (pos-tiff==4 && c4!=0x08000000) tiff=0; // 8=normal offset to directory
     if (tiff && pos-tiff==200) {  // most of directory should be read by now
@@ -2248,76 +2250,77 @@ int im24bitModel(Mixer& m) {
 }
 
 void model8bit(Mixer& m, int w) {
-	const int SC=0x20000;
-	static SmallStationaryContextMap scm1(SC), scm2(SC),
-		scm3(SC), scm4(SC), scm5(SC), scm6(SC*2),scm7(SC);
-	static ContextMap cm(MEM*4, 32);
-	
-	// Select nearby pixels as context
-	if (!bpos) {
-		assert(w>3);
-		int mean=buf(1)+buf(w-1)+buf(w)+buf(w+1);
-		const int var=sqrbuf(1)+sqrbuf(w-1)+sqrbuf(w)+sqrbuf(w+1)-mean*mean/4>>2;
-		mean>>=2;
-		const int logvar=ilog(var);
-		int i=0;
-		// 2 x 
-		cm.set(hash(++i, buf(1)>>2, buf(w)>>2));
-		cm.set(hash(++i, buf(1)>>2, buf(2)>>2));
-		cm.set(hash(++i, buf(w)>>2, buf(w*2)>>2));
-		cm.set(hash(++i, buf(1)>>2, buf(w-1)>>2));
-		cm.set(hash(++i, buf(w)>>2, buf(w+1)>>2));
-		cm.set(hash(++i, buf(w+1)>>2, buf(w+2)>>2));
-		cm.set(hash(++i, buf(w+1)>>2, buf(w*2+2)>>2));
-		cm.set(hash(++i, buf(w-1)>>2, buf(w*2-2)>>2));
-		cm.set(hash(++i, buf(1)+buf(w)>>1));
-		cm.set(hash(++i, buf(1)+buf(2)>>1));
-		cm.set(hash(++i, buf(w)+buf(w*2)>>1));
-		cm.set(hash(++i, buf(1)+buf(w-1)>>1));
-		cm.set(hash(++i, buf(w)+buf(w+1)>>1));
-		cm.set(hash(++i, buf(w+1)+buf(w+2)>>1));
-		cm.set(hash(++i, buf(w+1)+buf(w*2+2)>>1));
-		cm.set(hash(++i, buf(w-1)+buf(w*2-2)>>1));
+  const int SC=0x20000;
+  static SmallStationaryContextMap scm1(SC), scm2(SC),
+    scm3(SC), scm4(SC), scm5(SC), scm6(SC*2),scm7(SC);
+  static ContextMap cm(MEM*4, 32);
+  
+  // Select nearby pixels as context
+  if (!bpos) {
+    assert(w>3);
+    int mean=buf(1)+buf(w-1)+buf(w)+buf(w+1);
+    const int var=sqrbuf(1)+sqrbuf(w-1)+sqrbuf(w)+sqrbuf(w+1)-mean*mean/4>>2;
+    mean>>=2;
+    const int logvar=ilog(var);
+    int i=0;
+    // 2 x 
+    cm.set(hash(++i, buf(1)>>2, buf(w)>>2)); 
+    cm.set(hash(++i, buf(1)>>2, buf(2)>>2));
+    cm.set(hash(++i, buf(w)>>2, buf(w*2)>>2));
+    cm.set(hash(++i, buf(1)>>2, buf(w-1)>>2));
+    cm.set(hash(++i, buf(w)>>2, buf(w+1)>>2));
+    cm.set(hash(++i, buf(w+1)>>2, buf(w+2)>>2));
+    cm.set(hash(++i, buf(w+1)>>2, buf(w*2+2)>>2));
+    cm.set(hash(++i, buf(w-1)>>2, buf(w*2-2)>>2));
+    cm.set(hash(++i, buf(1)+buf(w)>>1));
+    cm.set(hash(++i, buf(1)+buf(2)>>1));
+    cm.set(hash(++i, buf(w)+buf(w*2)>>1));
+    cm.set(hash(++i, buf(1)+buf(w-1)>>1));
+    cm.set(hash(++i, buf(w)+buf(w+1)>>1));
+    cm.set(hash(++i, buf(w+1)+buf(w+2)>>1));
+    cm.set(hash(++i, buf(w+1)+buf(w*2+2)>>1));
+    cm.set(hash(++i, buf(w-1)+buf(w*2-2)>>1));
+    // 3 x
+    cm.set(hash(++i, buf(w)>>2, buf(1)>>2, buf(w-1)>>2));
+    cm.set(hash(++i, buf(w-1)>>2, buf(w)>>2, buf(w+1)>>2));
+    cm.set(hash(++i, buf(1)>>2, buf(w-1)>>2, buf(w*2-1)>>2));
+    // mixed
+    cm.set(hash(++i, buf(3)+buf(w)>>1, buf(1)>>2, buf(2)>>2));
+    cm.set(hash(++i, buf(2)+buf(1)>>1,buf(w)+buf(w*2)>>1,buf(w-1)>>2));
+    cm.set(hash(++i, buf(2)+buf(1)>>2,buf(w-1)+buf(w)>>2));
+    cm.set(hash(++i, buf(2)+buf(1)>>1,buf(w)+buf(w*2)>>1));
+    cm.set(hash(++i, buf(2)+buf(1)>>1,buf(w-1)+buf(w*2-2)>>1));
+    cm.set(hash(++i, buf(2)+buf(1)>>1,buf(w+1)+buf(w*2+2)>>1));
+    cm.set(hash(++i, buf(w)+buf(w*2)>>1,buf(w-1)+buf(w*2+2)>>1));
+    cm.set(hash(++i, buf(w-1)+buf(w)>>1,buf(w)+buf(w+1)>>1));
+    cm.set(hash(++i, buf(1)+buf(w-1)>>1,buf(w)+buf(w*2)>>1));
+    cm.set(hash(++i, buf(1)+buf(w-1)>>2,buf(w)+buf(w+1)>>2));
+    cm.set(hash(++i, (buf(1)-buf(w-1)>>1)+buf(w)>>2));
+    cm.set(hash(++i, (buf(w-1)-buf(w)>>1)+buf(1)>>2));
+    cm.set(hash(++i, -buf(1)+buf(w-1)+buf(w)>>2));
+    scm1.set(buf(1)+buf(w)>>1);
+    scm2.set(buf(1)+buf(w)-buf(w+1)>>1);
+    scm3.set(buf(1)*2-buf(2)>>1);
+    scm4.set(buf(w)*2-buf(w*2)>>1);
+    scm5.set(buf(1)+buf(w)-buf(w-1)>>1);
+    scm6.set(mean>>1|logvar<<1&0x180);
+  }
 
-		// 3 x
-		cm.set(hash(++i, buf(w)>>2, buf(1)>>2, buf(w-1)>>2));
-		cm.set(hash(++i, buf(w-1)>>2, buf(w)>>2, buf(w+1)>>2));
-		cm.set(hash(++i, buf(1)>>2, buf(w-1)>>2, buf(w*2-1)>>2));
-
-		// mixed
-		cm.set(hash(++i, buf(3)+buf(w)>>1, buf(1)>>2, buf(2)>>2));
-		cm.set(hash(++i, buf(2)+buf(1)>>1,buf(w)+buf(w*2)>>1,buf(w-1)>>2));
-		cm.set(hash(++i, buf(2)+buf(1)>>2,buf(w-1)+buf(w)>>2));
-		cm.set(hash(++i, buf(2)+buf(1)>>1,buf(w)+buf(w*2)>>1));
-		cm.set(hash(++i, buf(2)+buf(1)>>1,buf(w-1)+buf(w*2-2)>>1));
-		cm.set(hash(++i, buf(2)+buf(1)>>1,buf(w+1)+buf(w*2+2)>>1));
-		cm.set(hash(++i, buf(w)+buf(w*2)>>1,buf(w-1)+buf(w*2+2)>>1));
-		cm.set(hash(++i, buf(w-1)+buf(w)>>1,buf(w)+buf(w+1)>>1));
-		cm.set(hash(++i, buf(1)+buf(w-1)>>1,buf(w)+buf(w*2)>>1));
-		cm.set(hash(++i, buf(1)+buf(w-1)>>2,buf(w)+buf(w+1)>>2));
-
-		cm.set(hash(++i, (buf(1)-buf(w-1)>>1)+buf(w)>>2));
-		cm.set(hash(++i, (buf(w-1)-buf(w)>>1)+buf(1)>>2));
-		cm.set(hash(++i, -buf(1)+buf(w-1)+buf(w)>>2));
-
-		scm1.set(buf(1)+buf(w)>>1);
-		scm2.set(buf(1)+buf(w)-buf(w+1)>>1);
-		scm3.set(buf(1)*2-buf(2)>>1);
-		scm4.set(buf(w)*2-buf(w*2)>>1);
-		scm5.set(buf(1)+buf(w)-buf(w-1)>>1);
-		scm6.set(mean>>1|logvar<<1&0x180);
-	}
-
-	// Predict next bit
-	scm1.mix(m);
-	scm2.mix(m);
-	scm3.mix(m);
-	scm4.mix(m);
-	scm5.mix(m);
-	scm6.mix(m);
-	scm7.mix(m); // Amazingly but improves compression!
-	cm.mix(m);
-	//return w;
+  // Predict next bit
+  scm1.mix(m);
+  scm2.mix(m);
+  scm3.mix(m);
+  scm4.mix(m);
+  scm5.mix(m);
+  scm6.mix(m);
+  scm7.mix(m); // Amazingly but improves compression!
+  cm.mix(m);
+  static int col=0;
+  if (++col>=8) col=0; // reset after every 24 columns?
+  m.set(2, 8);
+  m.set(col, 8);
+  m.set(buf(w)+buf(1)>>4, 32);
+  m.set(c0, 256);
 }
 
 //////////////////////////// pgmModel /////////////////////////////////
@@ -2327,134 +2330,93 @@ void model8bit(Mixer& m, int w) {
 // is detected, else 0.
 
 int pgmModel(Mixer& m) {
-	static int h = 0;		// height of image in bytes (pixels)
-	static int w = 0;		// width of image in bytes (pixels)
-	static int eoi = 0;     // end of image
-	static int pgm  = 0;    // offset of pgm header
-	static int pgm_hdr[3];  // 0 - Width, 1 - Height, 2 - Max value
-	static int pgm_ptr;		// which record in header should be parsed next
-	int isws;				// is white space
-	char v_buf[32];			
-	int  v_ptr;
-	if (!bpos)
-	{
-		if(buf(3)=='P' && buf(2)=='5' && ISWHITESPACE(1)) // Detect PGM file
-		{
-			pgm = pos;
-			pgm_ptr = 0;
-			return w = 0; // PGM header just detected, not enough info to get header yet
-		}else 
-			if(pgm && pgm_ptr!=3) 		// PGM detected, let's parse header records
-			{ 
-				for (int i = pgm; i<pos-1 && pgm_ptr<3; i++)
-				{
-					// Skip white spaces
-					while ((isws = ISWHITESPACE(pos-i)) && i<pos-1) i++; 
-					if(isws) break; // buffer end is reached
-
-					// Skip comments
-					if(buf(pos-i)=='#')
-					{ 
-						do {
-							i++;
-						}while(!ISCRLF(pos-i) && i<pos-1);
-					}else
-					{ 
-						// Get header record as a string into v_buf
-						v_ptr = 0;
-						do {
-							v_buf[v_ptr++] = buf(pos-i);
-							i++;
-						}while(!(isws = ISWHITESPACE(pos-i)) && i<pos-1 && v_ptr<32);
-
-						if(isws)
-						{
-							pgm_hdr[pgm_ptr++] = atoi(v_buf);
-							pgm = i; // move pointer 
-						}
-					}
-				}
-
-				// Header is finished, next byte is first pixel
-				if(pgm_ptr==3)
-				{ 
-					if(pgm_hdr[2] == 255 && pgm_hdr[0]>0 && pgm_hdr[1]>0)
-					{
-						w = pgm_hdr[0];
-						h = pgm_hdr[1];
-						eoi = pos+w*h;
-						printf("PGM %dx%d",w,h);
-					}
-				}
-			}
-	}
-	if (pos>eoi) return w=0;
-    model8bit(m,w);
-	static int col=0;
-	  if (++col>=8) col=0; // reset after every 24 columns?
-	  m.set(2, 8);
-	  m.set(col, 8);
-	  m.set(buf(w)+buf(1)>>4, 32);
-	  m.set(c0, 256);
-	return w;
+  static int w=0, h=0; // size of image in bytes (pixels)
+  static int eoi=0;    // end of image
+  static int pgm=0;    // offset of pgm header
+  static int pgm_hdr[3];  // 0 - Width, 1 - Height, 2 - Max value
+  static int pgm_ptr;     // which record in header should be parsed next
+  int isws;
+  char v_buf[32];
+  int v_ptr;
+  if (!bpos && pos>eoi) {
+    if (!pgm && buf(3)=='P' && buf(2)=='5' && ISWHITESPACE(1)) { // Detect PGM file
+      pgm=pos;
+      pgm_ptr=0;
+      return w=0; // PGM header just detected, not enough info to get header yet
+    } else if (pgm && pgm_ptr!=3) { // PGM detected, let's parse header records
+      for (int i=pgm; i<pos-1 && pgm_ptr<3; i++) {
+        while ((isws=ISWHITESPACE(pos-i)) && i<pos-1) i++; // Skip white spaces
+        if (isws) break; // buffer end is reached
+        if (buf(pos-i)=='#') {
+          do {i++;} while (!ISCRLF(pos-i) && i<pos-1);
+        } else {
+          v_ptr=0;
+          do {
+            v_buf[v_ptr++]=buf(pos-i);
+            i++;
+          } while (!(isws=ISWHITESPACE(pos-i)) && i<pos-1 && v_ptr<32);
+          if (isws) {
+            pgm_hdr[pgm_ptr++]=atoi(v_buf);
+            pgm=i; // move pointer 
+          }
+        }
+      }
+      if (pgm_ptr==3) {
+        w=pgm_hdr[0];
+        h=pgm_hdr[1];
+        if (pgm_hdr[2]==255 && w<0x30000 && h<0x10000 && w>0 && h>0) {
+          printf("PGM %dx%d ",w,h);
+          eoi=pos+w*h;
+        }
+        pgm=0;
+      } else if (pos-pgm>1024) pgm=0; // maximal length of header
+    }
+  }
+  if (pos>eoi) return w=0;
+  model8bit(m,w);
+  return w;
 }
 
 int bmpModel8(Mixer& m) {
-	static int h = 0;		// height of image in bytes (pixels)
-	static int w = 0;		// width of image in bytes (pixels)
-	static int eoi = 0;     // end of image
-	static int col = 0;
-	static int ibmp=0,w1=0;
-	 if (bpos==0) {
-        //  8-bit .bmp images                    data offset      windows bmp    compression   bpp
-		if (/*buf(54)=='B' && buf(53)=='M' && */(i4(44)< 1079) && i4(40)==40 && i4(24)==0 && (buf(26)==8 /*| buf(26)==4)*/)){
-		/*	if  (buf(26)==4)
-			w1=i4(36)/2;  // image width
-			else*/
-            w1=i4(36);  // image width 8453632 -> 2079974
-			h=i4(32);   // image height
-			ibmp=pos+i4(44)-54;
-        }
-        if (ibmp==pos) {
-			w=w1;
-			eoi=pos+w*h;
-			printf("BMP(8-bit) %dx%d",w,h);
-			ibmp=0;
-		}
-	 }
-	if (pos>eoi) return w=0;
-	  model8bit(m,w);
-	  if (++col>=8) col=0; // reset after every 24 columns?
-	  m.set(2, 8);
-	  m.set(col, 8);
-	  m.set(buf(w)+buf(1)>>4, 32);
-	  m.set(c0, 256);
-	  return w;
+  static int w=0, h=0; // size of image in bytes (pixels)
+  static int eoi=0;    // end of image
+  static int col=0;
+  static int ibmp=0,w1=0;
+  if (bpos==0 && pos>eoi) {
+    //  8-bit .bmp images
+    if ((i4(44)<1079) && i4(40)==40 && i4(24)==0 && (buf(26)==8)) {
+      w1=i4(36);  // image width
+      h=i4(32);   // image height
+      ibmp=pos+i4(44)-54;
+    }
+    if (ibmp==pos) {
+      w=w1;
+      ibmp=0;
+      printf("BMP(8-bit) %dx%d ",w,h);
+      eoi=pos+w*h;
+    }
+  }
+  if (pos>eoi) return w=0;
+  model8bit(m,w);
+  return w;
 }
 
 int rgbModel8(Mixer& m) {
-	int h = 0;		        // height of image in bytes (pixels)
-	static int w = 0;		// width of image in bytes (pixels)
-	static int eoi = 0;     // end of image
-	static int col = 0;
-	 // for .rgb gray images
-	 if (bpos==0) {
-		if (buf(507)==1 && buf(506)==218 && buf(505)==0 && i2(496)==1)
-        {
-			w=(buf(501)&255)*256|(buf(500)&255); // image width
-			h=(buf(499)&255)*256|(buf(498)&255);  // image height
-			eoi=pos+w*h;
-			printf("RGB(8-bit) %dx%d",w,h);
-		}
-	 }
-	if (pos>eoi) return w=0;
-	  model8bit(m,w);
-	  if (++col>=8) col=0; // reset after every 24 columns?
-	  m.set(2, 8);
-	  m.set(col, 8);
-	  m.set(buf(w)+buf(1)>>4, 32);
-	  m.set(c0, 256);
-	  return w;
+  static int w=0, h=0; // size of image in bytes (pixels)
+  static int eoi=0;    // end of image
+  static int col=0;
+  // for .rgb gray images
+  if (bpos==0) {
+    if (buf(507)==1 && buf(506)==218 && buf(505)==0 && i2(496)==1) {
+      w=(buf(501)&255)*256|(buf(500)&255);  // image width
+      h=(buf(499)&255)*256|(buf(498)&255);  // image height
+      printf("RGB(8-bit) %dx%d ",w,h);
+      eoi=pos+w*h;
+    }
+  }
+  if (pos>eoi) return w=0;
+  model8bit(m,w);
+  return w;
 }
 
 
@@ -2498,104 +2460,83 @@ void model1bit(Mixer& m, int brow) {
 // Model a 1-bit color uncompressed .bmp images. 
 
 void bmpModel1(Mixer& m) {
-	static int h = 0;		// height of image in bytes (pixels)
-	static int w = 0;		// width of image in bytes (pixels)
-	static int eoi = 0;     // end of image
-	static int ibmp=0,brow=0;
-	 if (bpos==0) {
-        //  1-bit .bmp images                data offset      windows bmp    compression   bpp
-		if (buf(54)=='B' && buf(53)=='M' && (i4(44)==0x3e) && i4(40)==40 && i4(24)==0 && buf(26)==1){
-            w=i4(36);  // image width 
-			h=i4(32);   // image height
-			ibmp=pos+i4(44)-62;
-        }
-        if (i4(40)==40 && i4(24)==0 && buf(26)==1){
-            w=i4(36);  // image width 
-			h=i4(32);   // image height
-			ibmp=pos+2;
-        }
-        if (ibmp==pos) {
-			brow=((((w-1)>>5)+1)*4);
-			eoi=pos+((((w-1)>>5)+1)*4*h);
-			printf("BMP(1-bit) %dx%d ",w,h);
-			ibmp=0;
-		}
-	 }
-	if (pos>eoi) return;
-	model1bit(m,brow);
-    return;
+  static int w=0, h=0; // size of image in bytes (pixels)
+  static int eoi=0;    // end of image
+  static int ibmp=0,brow=0;
+  if (bpos==0 && pos>eoi) {
+    //  1-bit .bmp images
+    if (buf(54)=='B' && buf(53)=='M' && (i4(44)==0x3e) && i4(40)==40 && i4(24)==0 && buf(26)==1) {
+      w=i4(36);  // image width 
+      h=i4(32);  // image height
+      ibmp=pos+i4(44)-62;
+    }
+    if (i4(40)==40 && i4(24)==0 && buf(26)==1) {
+      w=i4(36);  // image width 
+      h=i4(32);  // image height
+      ibmp=pos+2;
+    }
+    if (ibmp==pos) {
+      brow=((((w-1)>>5)+1)*4);
+      eoi=pos+((((w-1)>>5)+1)*4*h);
+      printf("BMP(1-bit) %dx%d ",w,h);
+      ibmp=0;
+    }
+  }
+  if (pos>eoi) return;
+  model1bit(m,brow);
+  return;
 }
 //////////////////////////// pbmModel /////////////////////////////////
 
 // Model a 1-bit color uncompressed .pbm images. 
 
 void pbmModel(Mixer& m) {
-	static int h = 0;		// height of image in bytes (pixels)
-	static int w = 0,w1=0;		// width of image in bytes (pixels)
-	static int eoi = 0;     // end of image
-	static int pbm  = 0;    // offset of pgm header
-	static int pbm_hdr[2];  // 0 - Width, 1 - Height
-	static int pbm_ptr;		// which record in header should be parsed next
-	int isws;				// is white space
-	char v_buf[32];			
-	int  v_ptr;
-	if (!bpos && (pos>eoi))
-	{
-		if(buf(3)=='P' && buf(2)=='4' && ISWHITESPACE(1)) // Detect PBM file
-		{
-			pbm = pos;
-			pbm_ptr = 0;
-			return;// w = 0; // PBM header just detected, not enough info to get header yet
-		}else 
-			if(pbm && pbm_ptr!=2) 		// PBM detected, let's parse header records
-			{ 
-				for (int i = pbm; i<pos-1 && pbm_ptr<2; i++)
-				{
-					// Skip white spaces
-					while ((isws = ISWHITESPACE(pos-i)) && i<pos-1) i++; 
-					if(isws) break; // buffer end is reached
-
-					// Skip comments
-					if(buf(pos-i)=='#')
-					{ 
-						do {
-							i++;
-						}while(!ISCRLF(pos-i) && i<pos-1);
-					}else
-					{ 
-						// Get header record as a string into v_buf
-						v_ptr = 0;
-						do {
-							v_buf[v_ptr++] = buf(pos-i);
-							i++;
-						}while(!(isws = ISWHITESPACE(pos-i)) && i<pos-1 && v_ptr<32);
-
-						if(isws)
-						{
-							pbm_hdr[pbm_ptr++] = atoi(v_buf);
-							pbm = i; // move pointer 
-						}
-					}
-				}
-
-				// Header is finished, next byte is first pixel
-				if(pbm_ptr==2)
-				{ 
-					if(pbm_hdr[0]>0 && pbm_hdr[1]>0)
-					{
-						w = pbm_hdr[0];
-						h = pbm_hdr[1];
-						printf("PBM %dx%d",w,h);
-						w = (w+7)/8;
-						w1=w;
-						eoi = pos+w*h;
-					}
-				}
-			}
-	}
-	if (pos>eoi) return;
-    model1bit(m,w1);
-	return;
+  static int w=0, h=0; // size of image in bytes (pixels)
+  static int eoi=0;    // end of image
+  static int pbm=0;    // offset of pbm header
+  static int pbm_hdr[3];  // 0 - Width, 1 - Height, 2 - Max value
+  static int pbm_ptr;     // which record in header should be parsed next
+  int isws;
+  char v_buf[32];
+  int v_ptr;
+  if (!bpos && pos>eoi) {
+    if (!pbm && buf(3)=='P' && buf(2)=='4' && ISWHITESPACE(1)) { // Detect PBM file
+      pbm=pos;
+      pbm_ptr=0;
+      return; // PBM header just detected, not enough info to get header yet
+    } else if (pbm && pbm_ptr!=2) { // parse header records
+      for (int i=pbm; i<pos-1 && pbm_ptr<2; i++) {
+        while ((isws = ISWHITESPACE(pos-i)) && i<pos-1) i++; // Skip white spaces
+        if (isws) break; // buffer end is reached
+        if (buf(pos-i)=='#') {
+          do {i++;} while (!ISCRLF(pos-i) && i<pos-1);
+        } else {
+          v_ptr=0;
+          do {
+            v_buf[v_ptr++]=buf(pos-i);
+            i++;
+          } while (!(isws=ISWHITESPACE(pos-i)) && i<pos-1 && v_ptr<32);
+          if (isws) {
+            pbm_hdr[pbm_ptr++]=atoi(v_buf);
+            pbm=i; // move pointer 
+          }
+        }
+      }
+      if (pbm_ptr==2) {
+        w=pbm_hdr[0];
+        h=pbm_hdr[1];
+        if (w<0x30000 && h<0x10000 && w>0 && h>0) {
+          printf("PBM %dx%d ",w,h);
+          w=(w+7)/8;
+          eoi=pos+w*h;
+        }
+        pbm=0;
+      } else if (pos-pbm>1024) pbm=0; // maximal length of header
+    }
+  }
+  if (pos>eoi) return;
+  model1bit(m,w);
+  return;
 }
 
 //////////////////////////// jpegModel /////////////////////////
