@@ -1,4 +1,4 @@
-/* paq8p file compressor/archiver.  Release by Andreas Morphis, Aug. 22, 2008
+/* paq8px file compressor/archiver.  Release by Andreas Morphis, Aug. 22, 2008
 
     Copyright (C) 2008 Matt Mahoney, Serge Osnach, Alexander Ratushnyak,
     Bill Pettis, Przemyslaw Skibinski, Matthew Fite, wowtiger, Andrew Paterson,
@@ -19,38 +19,38 @@
 
 To install and use in Windows:
 
-- To install, put paq8p.exe or a shortcut to it on your desktop.
-- To compress a file or folder, drop it on the paq8p icon.
-- To decompress, drop a .paq8p file on the icon.
+- To install, put paq8px.exe or a shortcut to it on your desktop.
+- To compress a file or folder, drop it on the paq8px icon.
+- To decompress, drop a .paq8px file on the icon.
 
-A .paq8p extension is added for compression, removed for decompression.
+A .paq8px extension is added for compression, removed for decompression.
 The output will go in the same folder as the input.
 
-While paq8p is working, a command window will appear and report
+While paq8px is working, a command window will appear and report
 progress.  When it is done you can close the window by pressing
 ENTER or clicking [X]. 
 
 
 COMMAND LINE INTERFACE
 
-- To install, put paq8p.exe somewhere in your PATH.
-- To compress:      paq8p [-N] file1 [file2...]
-- To decompress:    paq8p [-d] file1.paq8p [dir2]
-- To view contents: more < file1.paq8p
+- To install, put paq8px.exe somewhere in your PATH.
+- To compress:      paq8px [-N] file1 [file2...]
+- To decompress:    paq8px [-d] file1.paq8px [dir2]
+- To view contents: more < file1.paq8px
 
-The compressed output file is named by adding ".paq8p" extension to
-the first named file (file1.paq8p).  Each file that exists will be
+The compressed output file is named by adding ".paq8px" extension to
+the first named file (file1.paq8px).  Each file that exists will be
 added to the archive and its name will be stored without a path.
 The option -N specifies a compression level ranging from -0
 (fastest) to -9 (smallest).  The default is -5.  If there is
 no option and only one file, then the program will pause when
 finished until you press the ENTER key (to support drag and drop).
-If file1.paq8p exists then it is overwritten.
+If file1.paq8px exists then it is overwritten.
 
-If the first named file ends in ".paq8p" then it is assumed to be
+If the first named file ends in ".paq8px" then it is assumed to be
 an archive and the files within are extracted to the same directory
 as the archive unless a different directory (dir2) is specified.
-The -d option forces extraction even if there is not a ".paq8p"
+The -d option forces extraction even if there is not a ".paq8px"
 extension.  If any output file already exists, then it is compared
 with the archive content and the first byte that differs is reported.
 No files are overwritten or deleted.  If there is only one argument
@@ -63,11 +63,11 @@ structure, except that empty directories are not stored, and file
 attributes (timestamps, permissions, etc.) are not preserved.
 During extraction, directories are created as needed.  For example:
 
-  paq8p -4 c:\tmp\foo bar
+  paq8px -4 c:\tmp\foo bar
 
-compresses foo and bar (if they exist) to c:\tmp\foo.paq8p at level 4.
+compresses foo and bar (if they exist) to c:\tmp\foo.paq8px at level 4.
 
-  paq8p -d c:\tmp\foo.paq8p .
+  paq8px -d c:\tmp\foo.paq8px .
 
 extracts foo and compares bar in the current directory.  If foo and bar
 are directories then their contents are extracted/compared.
@@ -81,8 +81,8 @@ are OK).
 
 TO COMPILE
 
-There are 2 files: paq8p.cpp (C++) and paq7asm.asm (NASM/YASM).
-paq7asm.asm is the same as in paq7 and paq8x.  paq8p.cpp recognizes the
+There are 2 files: paq8px.cpp (C++) and paq7asm.asm (NASM/YASM).
+paq7asm.asm is the same as in paq7 and paq8x.  paq8px.cpp recognizes the
 following compiler options:
 
   -DWINDOWS           (to compile in Windows)
@@ -109,22 +109,22 @@ Recommended compiler commands and optimizations:
 
   MINGW g++:
     nasm paq7asm.asm -f win32 --prefix _
-    g++ paq8p.cpp -DWINDOWS -O2 -Os -s -march=pentiumpro -fomit-frame-pointer -o paq8p.exe paq7asm.obj
+    g++ paq8px.cpp -DWINDOWS -O2 -Os -s -march=pentiumpro -fomit-frame-pointer -o paq8px.exe paq7asm.obj
 
   Borland:
     nasm paq7asm.asm -f obj --prefix _
-    bcc32 -DWINDOWS -O -w-8027 paq8p.cpp paq7asm.obj
+    bcc32 -DWINDOWS -O -w-8027 paq8px.cpp paq7asm.obj
 
   Mars:
     nasm paq7asm.asm -f obj --prefix _
-    dmc -DWINDOWS -Ae -O paq8p.cpp paq7asm.obj
+    dmc -DWINDOWS -Ae -O paq8px.cpp paq7asm.obj
 
   UNIX/Linux (PC):
     nasm -f elf paq7asm.asm
-    g++ paq8p.cpp -DUNIX -O2 -Os -s -march=pentiumpro -fomit-frame-pointer -o paq8p paq7asm.o
+    g++ paq8px.cpp -DUNIX -O2 -Os -s -march=pentiumpro -fomit-frame-pointer -o paq8px paq7asm.o
 
   Non PC (e.g. PowerPC under MacOS X)
-    g++ paq8p.cpp -O2 -DUNIX -DNOASM -s -o paq8p
+    g++ paq8px.cpp -O2 -DUNIX -DNOASM -s -o paq8px
 
 MinGW produces faster executables than Borland or Mars, but Intel 9
 is about 4% faster than MinGW).
@@ -136,7 +136,7 @@ An archive has the following format.  It is intended to be both
 human and machine readable.  The header ends with CTRL-Z (Windows EOF)
 so that the binary compressed data is not displayed on the screen.
 
-  paq8p -N CR LF
+  paq8px -N CR LF
   size TAB filename CR LF
   size TAB filename CR LF
   ...
@@ -153,24 +153,24 @@ directories are stored with path relative to the compressed directory
 
 Then
 
-  paq8p archive \dir1\file1.txt \dir2
+  paq8px archive \dir1\file1.txt \dir2
 
-will create archive.paq8p with the header:
+will create archive.paq8px with the header:
 
-  paq8p -5
+  paq8px -5
   123     file1.txt
   456     dir2/file2.txt
 
 The command:
 
-  paq8p archive.paq8p C:\dir3
+  paq8px archive.paq8px C:\dir3
 
 will create the files:
 
   C:\dir3\file1.txt
   C:\dir3\dir2\file2.txt
 
-Decompression will fail if the first 7 bytes are not "paq8p -".  Sizes
+Decompression will fail if the first 7 bytes are not "paq8px -".  Sizes
 are stored as decimal numbers.  CR, LF, TAB, CTRL-Z are ASCII codes
 13, 10, 9, 26 respectively.
 
@@ -192,7 +192,7 @@ on the ability to predict the next bit accurately.
 
 MODEL MIXING
 
-paq8p uses a neural network to combine a large number of models.  The
+paq8px uses a neural network to combine a large number of models.  The
 i'th model independently predicts
 p1_i = p(y_j = 1 | y_0..j-1), p0_i = 1 - p1_i.
 The network computes the next bit probabilty
@@ -421,7 +421,7 @@ adjacent quantized values of stretch(p1).  There are 2 APM stages in series:
 
 PREPROCESSING
 
-paq8p uses preprocessing transforms on certain data types to improve
+paq8px uses preprocessing transforms on certain data types to improve
 compression.  To improve reliability, the decoding transform is
 tested during compression to ensure that the input file can be
 restored.  If the decoder output is not identical to the input file
@@ -591,9 +591,19 @@ added .rgb file support (uncompressed grayscale)
 DIFFERENCES FROM PAQ8O9
 
 Added wav Model. Slightly improved bmp model.
+
+DIFFERENCES FROM PAQ8P
+
+Modified .pbm, .pgm, .ppm, .bmp, .rgb detection (from paq8p3)
+Modified WAV model (from paq8p_)
+Modified JPEG model (from paq8p2)
+bmpModel (24-bit) renamed to im24bitModel with .ppm compression added (from paq8p3)
+Added bmpModel1 (1-bit) and PBM models (from paq8p3)
+Removed pic model
+
 */
 
-#define PROGNAME "paq8p"  // Please change this if you change the program.
+#define PROGNAME "paq8px"  // Please change this if you change the program.
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -2062,9 +2072,13 @@ void distanceModel(Mixer& m) {
   cr.mix(m);
 }
 
-//////////////////////////// bmpModel /////////////////////////////////
+// For ppmModel and pgmModel
+#define ISWHITESPACE(i) (buf(i) == ' ' || buf(i) == '\t' || buf(i) == '\n' || buf(i) == '\r')
+#define ISCRLF(i) (buf(i) == '\n' || buf(i) == '\r')
 
-// Model a 24-bit color uncompressed .bmp or .tif file.  Return
+//////////////////////////// im24bitModel /////////////////////////////////
+
+// Model a 24-bit color uncompressed .bmp, .tif or .ppm file.  Return
 // width in pixels if an image file is detected, else 0.
 
 // 32-bit little endian number at buf(i)..buf(i-3)
@@ -2085,14 +2099,55 @@ inline int sqrbuf(int i) {
   return buf(i)*buf(i);
 }
 
-int bmpModel(Mixer& m) {
-  static int w=0;  // width of image in bytes (pixels * 3)
-  static int eoi=0;     // end of image
+int im24bitModel(Mixer& m) {
+  static int w = 0;   // width of image in bytes (pixels * 3)
+  static int eoi=0;   // end of image
   static U32 tiff=0;  // offset of tif header
+  static int ppm=0;   // offset of pgm header
+  static int ppm_hdr[3];  // 0 - Width, 1 - Height, 2 - Max value
+  static int ppm_ptr;     // which record in header should be parsed next
+  int isws;               // is white space
+  char v_buf[32];
+  int v_ptr;
   const int SC=0x20000;
   static SmallStationaryContextMap scm1(SC), scm2(SC),
     scm3(SC), scm4(SC), scm5(SC), scm6(SC), scm7(SC), scm8(SC), scm9(SC*2), scm10(SC);
   static ContextMap cm(MEM*4, 13);
+
+  // Detect .ppm header
+  if (!bpos && pos>eoi) {
+    if (buf(3)=='P' && buf(2)=='6' && ISWHITESPACE(1)) {
+      ppm=pos;
+      ppm_ptr=0;
+      return w=0; // PPM header just detected, not enough info to get header yet
+    } else if (ppm && ppm_ptr!=3) { // parse header records
+      for (int i=ppm; i<pos-1 && ppm_ptr<3; i++) {
+        while ((isws=ISWHITESPACE(pos-i)) && i<pos-1) i++;  // Skip white spaces
+        if (isws) break; // buffer end is reached
+        if (buf(pos-i)=='#') { // Skip comments
+          do {i++;} while(!ISCRLF(pos-i) && i<pos-1);
+        } else {
+          v_ptr=0;  // Get header record as a string into v_buf
+          do {
+            v_buf[v_ptr++]=buf(pos-i);
+            i++;
+          } while(!(isws=ISWHITESPACE(pos-i)) && i<pos-1 && v_ptr<32);
+          if (isws) {
+            ppm_hdr[ppm_ptr++]=atoi(v_buf);
+            ppm=i; // move pointer
+          }
+        }
+      }
+      if (ppm_ptr==3) { // Header is finished, next byte is first pixel
+        if (ppm_hdr[2] <= 255 && ppm_hdr[0]>0 && ppm_hdr[1]>0) {
+          w=ppm_hdr[0];
+          printf("PPM %dx%d",w,ppm_hdr[1]);
+          w*=3;
+          eoi=pos+w*ppm_hdr[1];
+        }
+      }
+    }
+  }
 
   // Detect .bmp file header (24 bit color, not compressed)
   if (!bpos && buf(54)=='B' && buf(53)=='M'
@@ -2267,9 +2322,6 @@ void model8bit(Mixer& m, int w) {
 // Model a 8-bit grayscale uncompressed binary .pgm and 8-bit color
 // uncompressed .bmp images.  Return width in pixels if an image file
 // is detected, else 0.
-
-#define ISWHITESPACE(i) (buf(i) == ' ' || buf(i) == '\t' || buf(i) == '\n' || buf(i) == '\r')
-#define ISCRLF(i) (buf(i) == '\n' || buf(i) == '\r')
 
 int pgmModel(Mixer& m) {
 	static int h = 0;		// height of image in bytes (pixels)
@@ -3499,8 +3551,8 @@ int contextModel2() {
        return m.p();
      }
   }
-  if (filetype==BMPFILE24 || filetype==TIFFFILE){ 
-     int isbmp=bmpModel(m); // Image width (bytes) if BMP or TIFF detected, or 0
+  if (filetype==BMPFILE24 || filetype==TIFFFILE || filetype==PPMFILE){ 
+     int isbmp=im24bitModel(m); // Image width (bytes) if image detected, or 0
      if (isbmp>0) {
        static int col=0;
        if (++col>=24) col=0;
@@ -3801,8 +3853,8 @@ Filetype detect(FILE* in, int n, Filetype type) {
   int e8e9last=0;   // offset of most recent CALL or JMP
   // For BMP detection
   int bmp=0,bsize=0,imgbpp=0,bmpx=0,bmpy=0,bmpimgoff=0,imgcomp=-1;
-  // For PGM, PPM, PBM detection
-  int pgm=0,psize=0,pgmcomment=0,pgmw=0,pgmh=0,pgmsize=0,pgm_ptr=0,pgmc=0,pgm6=0,pbm=0;
+  // For PBM, PGM, PPM detection
+  int pgm=0,pgmcomment=0,pgmw=0,pgmh=0,pgm_ptr=0,pgmc=0,pgmn=0;
   char pgm_buf[32];
   // For JPEG detection
   int soi=0, sof=0, sos=0, app=0;  // position where found
@@ -3851,7 +3903,7 @@ Filetype detect(FILE* in, int n, Filetype type) {
         if (imgbpp==1) bsize=(((((bmpx-1)>>5)+1)*4*bmpy)+bmpimgoff);
         if (imgbpp==4) bsize=(((((bmpx-1)>>3)+1)*4*bmpy)+bmpimgoff);
         if (imgbpp==8) bsize=((bmpx+3&-4)*bmpy+bmpimgoff);
-        if (imgbpp==24) bsize=((bmpx*3+3&-4)*bmpy*3+bmpimgoff);
+        if (imgbpp==24) bsize=(((bmpx*3)+3&-4)*bmpy+bmpimgoff);
         return fseek(in, start+bsize, SEEK_SET),DEFAULT;
       }
       if (imgbpp==1 && imgcomp==0) return fseek(in, start+bmp-1, SEEK_SET),BMPFILE1;
@@ -3860,56 +3912,40 @@ Filetype detect(FILE* in, int n, Filetype type) {
       if (imgbpp==24 && imgcomp==0) return fseek(in, start+bmp-1, SEEK_SET),BMPFILE24;
     }
 
-
-
-    // Detect .pgm  .ppm  .pbm image
-    
-    if ((buf0&0xFFFFFF)==0x50350A ) pgm=i;           //possible 'P5 ' 8 bit
-    if ((buf0&0xFFFFFF)==0x50360A) pgm=i,pgm6=1;     //possible 'P6 ' 24 bit
-    if ((buf0&0xFFFFFF)==0x50340A) pgm=i,pbm=1;      //possible 'P4 ' 1 bit
-    if (pgm){
-		if ((i-pgm)==1 && c==0x23) pgmcomment=1; //pgm comment
-		//not tested without comment
-		if (!pgmcomment && c==0x20 && !pgmw && pgm_ptr) {
-			pgm_buf[pgm_ptr++]=0;
-			pgmw=atoi(pgm_buf);
-			if (pgmw==0) pgm=pgm_ptr=pgmw=pgmh=pgmc=pgmcomment=pgm6=pbm=0;			
-			pgm_ptr=0;
-		}
-		if (!pgmcomment && c==0x0a && !pgmh && pgm_ptr){
-			pgm_buf[pgm_ptr++]=0;
-			pgmh=atoi(pgm_buf);
-			if (pgmh==0) pgm=pgm_ptr=pgmw=pgmh=pgmc=pgmcomment=pgm6=pbm=0;
-			pgm_ptr=0;
-		}
-		if (!pgmcomment && c==0x0a && !pgmc && pgm_ptr && !pbm){
-			pgm_buf[pgm_ptr++]=0;
-			pgmc=atoi(pgm_buf);
-			if (pgmc>255 || pgmc<=0) pgm=pgm_ptr=pgmw=pgmh=pgmc=pgmcomment=pgm6=pbm=0; // do not allow larger sample size
-			pgm_ptr=0;
-		}
-		if (!pgmcomment) pgm_buf[pgm_ptr++]=c;
-		if (pgm_ptr>=32) pgm=pgm_ptr=pgmw=pgmh=pgmc=pgmcomment=pgm6=pbm=0;
-		if (pgmcomment && c==0x0a) pgmcomment=0;
-		if ((type==PGMFILE || type==PPMFILE)&& pgmw && pgmh && pgmc){
-			if (pgm6==1){
-                         pgmsize=(pgmw *pgmh*3) +pgm+i-1;
-                         return fseek(in, start+pgmsize, SEEK_SET),DEFAULT;
-                         }
-            pgmsize=pgmw *pgmh +pgm+i-1;
-			return fseek(in, start+pgmsize, SEEK_SET),DEFAULT;			
-		}
-     	if (pgmw && pgmh && pgmc && !pbm){
-                 if (pgm6==1) return fseek(in, start+pgm-2, SEEK_SET),PPMFILE;
-		     return fseek(in, start+pgm-2, SEEK_SET),PGMFILE;
+    // Detect .pbm .pgm .ppm image
+    if ((buf0&0xFFF0FF)==0x50300A) {
+      pgmn=(buf0&0xF00)>>8;
+      if (pgmn>=4 && pgmn <=6) pgm=i,pgm_ptr=pgmw=pgmh=pgmc=pgmcomment=0;
+    }
+    if (pgm) {
+      if (i-pgm==1 && c==0x23) pgmcomment=1; //pgm comment
+      if (!pgmcomment && pgm_ptr) {
+        int s=0;
+        if (c==0x20 && !pgmw) s=1;
+        else if (c==0x0a && !pgmh) s=2;
+        else if (c==0x0a && !pgmc && pgmn!=4) s=3;
+        if (s) {
+          pgm_buf[pgm_ptr++]=0;
+          int v=atoi(pgm_buf);
+          if (s==1) pgmw=v; else if (s==2) pgmh=v; else if (s==3) pgmc=v;
+          if (v==0 || (s==3 && v>255)) pgm=0; else pgm_ptr=0;
         }
-        if (type==PBMFILE && pgmw && pgmh && !pgmc && pbm){
-                         pgmsize=((pgmw+7)/8) *pgmh +pgm+i-1;
-                         return fseek(in, start+pgmsize, SEEK_SET),DEFAULT;			
-		}
-     	if (pgmw && pgmh && !pgmc && pbm){
-		     return fseek(in, start+pgm-2, SEEK_SET),PBMFILE;
-        }
+      }
+      if (!pgmcomment) pgm_buf[pgm_ptr++]=c;
+      if (pgm_ptr>=32) pgm=0;
+      if (pgmcomment && c==0x0a) pgmcomment=0;
+      if (pgmw && pgmh && !pgmc && pgmn==4) {
+        if (type==PBMFILE) return fseek(in, start+((pgmw+7)/8)*pgmh+pgm+i-1, SEEK_SET),DEFAULT;
+        else return fseek(in, start+pgm-2, SEEK_SET),PBMFILE;
+      }
+      if (pgmw && pgmh && pgmc && pgmn==5) {
+        if (type==PGMFILE) return fseek(in, start+pgmw*pgmh+pgm+i-1, SEEK_SET),DEFAULT;
+        else return fseek(in, start+pgm-2, SEEK_SET),PGMFILE;
+      }
+      if (pgmw && pgmh && pgmc && pgmn==6) {
+        if (type==PPMFILE) return fseek(in, start+(pgmw*pgmh*3)+pgm+i-1, SEEK_SET),DEFAULT;
+        else return fseek(in, start+pgm-2, SEEK_SET),PPMFILE;
+      }
     }
 
     // Detect .rgb image
@@ -4365,8 +4401,8 @@ int expand(String& archive, String& s, const char* fname, int base) {
 #endif
 
 
-// To compress to file1.paq8p: paq8p [-n] file1 [file2...]
-// To decompress: paq8p file1.paq8p [output_dir]
+// To compress to file1.paq8px: paq8px [-n] file1 [file2...]
+// To decompress: paq8px file1.paq8px [output_dir]
 int main(int argc, char** argv) {
   bool pause=argc<=2;  // Pause when done?
   try {
@@ -4551,13 +4587,13 @@ int main(int argc, char** argv) {
       printf("%ld -> %ld\n", total_size, en.size());
     }
 
-    // Decompress files to dir2: paq8p -d dir1/archive.paq8p dir2
+    // Decompress files to dir2: paq8px -d dir1/archive.paq8px dir2
     // If there is no dir2, then extract to dir1
     // If there is no dir1, then extract to .
     else {
       assert(argc>=2);
       String dir(argc>2?argv[2]:argv[1]);
-      if (argc==2) {  // chop "/archive.paq8p"
+      if (argc==2) {  // chop "/archive.paq8px"
         int i;
         for (i=dir.size()-2; i>=0; --i) {
           if (dir[i]=='/' || dir[i]=='\\') {
