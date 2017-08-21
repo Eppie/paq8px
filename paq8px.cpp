@@ -3904,7 +3904,7 @@ void encode_cd(FILE* in, FILE* out, int len, int info) {
 
 #define MAX_ITER 5
 
-int decode(Encoder& en, int iter);
+int decode(Encoder& en, int it);
 
 int decode_cd(Encoder& en, int size, int it) {
   const int BLOCK=2352;
@@ -3964,9 +3964,9 @@ void encode_exe(FILE* in, FILE* out, int len, int begin) {
         a<<=7;
         a>>=7;
         blk[i]=a>>24;
-        blk[i-1]=a^64;
-        blk[i-2]=(a>>8)^64;
-        blk[i-3]=(a>>16)^64;
+        blk[i-1]=a^176;
+        blk[i-2]=(a>>8)^176;
+        blk[i-3]=(a>>16)^176;
       }
     }
     fwrite(&blk[0], 1, bytesRead, out);
@@ -4001,7 +4001,7 @@ int decode_exe(Encoder& en, int size) {
   // E8E9 transform: E8/E9 xx xx xx 00/FF -> subtract location from x
   if (q==6 && (c[0]==0||c[0]==0xff) && (c[4]==0xe8 || c[4]==0xe9 || (c[5]==0x0f && (c[4]&0xf0)==0x80))
      && ((offset-1^offset-6)&-BLOCK)==0) { // not crossing block boundary
-    int a=((c[1]^64)|(c[2]^64)<<8|(c[3]^64)<<16|c[0]<<24)-offset-begin;
+    int a=((c[1]^176)|(c[2]^176)<<8|(c[3]^176)<<16|c[0]<<24)-offset-begin;
     a<<=7;
     a>>=7;
     c[3]=a;
@@ -4017,12 +4017,13 @@ int decode_exe(Encoder& en, int size) {
 
 // Decode <type> <len> <data>...
 int decode(Encoder& en, int it=MAX_ITER) {
-  if (it==0) return en.decompress(); else it--;
   static Filetype type[MAX_ITER];
   static int len[MAX_ITER], size[MAX_ITER], start=0;
+  int i;
+  if (it==0) return en.decompress(); else it--;
   if (start==0) {
     start=1;
-    for (int i=0; i<MAX_ITER; i++) len[i]=0;
+    for (i=0; i<MAX_ITER; i++) len[i]=0;
   }
   while (len[it]==0) {
     type[it]=(Filetype)en.decompress();
