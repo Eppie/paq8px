@@ -3535,8 +3535,20 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
       else if (p==24) {
         const int bits=buf0&0xffff, chn=buf1>>16;
         if ((bits==8 || bits==16) && (chn==1 || chn==2)) aiffm=(bits==8?chn-1:chn+5); else aiff=0;
-      } else if (p==42) {
-        if (buf1==0x53534e44) AUD_DET(AUDIO,aiff-3,54,buf0-8,aiffm);
+      } else if (p==34) {
+				int j=0;
+				long savedpos=ftell(in);
+				char chunk[4];
+				int csize;
+				do {
+					chunk[0]=getc(in),chunk[1]=getc(in),chunk[2]=getc(in),chunk[3]=getc(in);
+					csize=getc(in),csize<<=8,csize|=getc(in),csize<<=8,csize|=getc(in),csize<<=8,csize|=getc(in);
+					if (chunk[0]=='S' && chunk[1]=='S' && chunk[2]=='N' && chunk[3]=='D') break;
+					if (fseek(in, csize, SEEK_CUR)!=0)aiff=0;
+					j+=(csize+8);
+				} while (aiff && j<512);
+				if (aiff && j<512) AUD_DET(AUDIO,aiff-3,38+j+(4*4),csize-8,aiffm);
+				fseek(in, savedpos, SEEK_SET);
         aiff=0;
       }
     }
