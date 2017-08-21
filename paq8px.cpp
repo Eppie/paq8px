@@ -1515,27 +1515,48 @@ inline  U8* BH<B>::operator[](U32 i) {
 
 // Predict to mixer m from bit history state s, using sm to map s to
 // a probability.
-inline int mix2(Mixer& m, int s, StateMap& sm) {
-  int v[5];
+inline int mix2(Mixer& m, int s, StateMap& sm, bool isThree, int runs) {
+  static int va[8], vb[8], vc[8];
+  static int threeCount;
+  for(int i=0; i<8; i++){
+    vc[i]=vb[i];
+    vb[i]=va[i];
+  }
+  int v[8];
   int p1=sm.p(s);
   int n0=-!nex(s,2);
   int n1=-!nex(s,3);
   int st=stretch(p1)>>2;
-  v[0]=st;
+  va[0]=v[0]=st;
   p1>>=4;
   int p0=255-p1;
-  v[1]=p1-p0;
-  v[2]=st*(n1-n0);
-  v[3]=(p1&n0)-(p0&n1);
-  v[4]=(p1&n1)-(p0&n0);
-  int d3=v[1]-v[3];
-  int d4=v[1]-v[4];
+  va[1]=v[1]=p1-p0;
+  va[2]=v[2]=st*(n1-n0);
+  va[3]=v[3]=(p1&n0)-(p0&n1);
+  va[4]=v[4]=(p1&n1)-(p0&n0);
+  va[5]=v[5]=v[1]-v[3];
+  va[6]=v[6]=v[1]-v[4];
+  va[7]=v[7]=runs;
+  if(isThree){
+     threeCount++;
+     if (threeCount==3){
+       m.add(va[0]+vb[0]-vc[0]);
+       m.add(vb[0]+vc[0]-va[0]);
+       m.add(vc[0]+va[0]-vb[0]); 
+       m.add(va[7]+vb[7]-vc[7]);
+       m.add(vb[7]+vc[7]-va[7]);
+       m.add(vc[7]+va[7]-vb[7]); 
+       threeCount=0;
+    }
+  }else{
+    m.add(v[7]);
+    m.add(v[5]);
+    m.add(v[6]);
+    m.add(v[0]);
+    m.add(v[2]);
+  }
   m.add(v[3]);
   m.add(v[4]);
-  m.add(d3);
-  m.add(d4);
-  m.add(v[0]);
-  m.add(v[2]);
   return s>0;
 }
 
@@ -1629,6 +1650,7 @@ public:
 
 class ContextMap {
   const int C;  // max number of contexts
+  const bool ThreeWay;
   class E {  // hash element, 64 bytes
     U16 chk[7];  // byte context checksums
     U8 last;     // last 2 accesses (0-6) in low, high nibble
@@ -1652,7 +1674,7 @@ class ContextMap {
   int mix1(Mixer& m, int cc, int bp, int c1, int y1);
     // mix() with global context passed as arguments to improve speed.
 public:
-  ContextMap(int m, int c=1);  // m = memory in bytes, a power of 2, C = c
+  ContextMap(int m, int c=1, bool isThree=false);  // m = memory in bytes, a power of 2, C = c
   ~ContextMap();
   void set(U32 cx, int next=-1);   // set next whole byte context to cx
     // if next is 0 then set order does not matter
@@ -1672,7 +1694,7 @@ inline U8* ContextMap::E::get(U16 ch) {
 }
 
 // Construct using m bytes of memory for c contexts
-ContextMap::ContextMap(int m, int c): C(c), t(m>>6), cp(c), cp0(c),
+ContextMap::ContextMap(int m, int c, bool isThree): ThreeWay(isThree), C(c), t(m>>6), cp(c), cp0(c),
     cxt(c), runp(c), cn(0) {
   assert(m>=64 && (m&m-1)==0);  // power of 2?
   assert(sizeof(E)==64);
@@ -1754,24 +1776,25 @@ int ContextMap::mix1(Mixer& m, int cc, int bp, int c1, int y1) {
      }
     }
 
+    int runs;
     // predict from last byte in context
     if ((runp[i][1]+256)>>(8-bp)==cc) {
       int rc=runp[i][0];  // count*2, +1 if 2 different bytes seen
       int b=(runp[i][1]>>(7-bp)&1)*2-1;  // predicted bit + for 1, - for 0
       int c=ilog(rc+1)<<(2+(~rc&1));
-      m.add(b*c);
+      runs=b*c;
     }
     else
-      m.add(0);
+      runs=0;
 
     // predict from bit context
    if (cp[i])
    {
-    result+=mix2(m, *cp[i], sm[i]);
+    result+=mix2(m, *cp[i], sm[i], ThreeWay, runs);
    }
    else
    {
-    mix2(m, 0, sm[i]);
+    mix2(m, 0, sm[i], ThreeWay, runs);
    }
 
 
@@ -3187,10 +3210,12 @@ typedef enum {DEFAULT, JPEG, HDR, IMAGE1, IMAGE8, IMAGE24, AUDIO, EXE, CD} Filet
 // This combines all the context models with a Mixer.
 
 int contextModel2() {
-  static ContextMap cm(MEM*32, 9);
+  static ContextMap cm(MEM*32, 9*3, true);
   static RunContextMap rcm7(MEM), rcm9(MEM), rcm10(MEM);
-  static Mixer m(1014, 3095, 7);
-  static U32 cxt[16];  // order 0-11 contexts
+  static Mixer m(1800, 3095, 7);
+  static U32 cxt1[16];  // order 0-11 contexts
+  static U32 cxt3[16];  // order 0-11 contexts
+  static U32 cxt2[16];  // order 0-11 contexts
   static Filetype ft2,filetype=DEFAULT;
   static int size=0;  // bytes remaining in block
   static int info=0;  // image width or audio type
@@ -3228,15 +3253,25 @@ int contextModel2() {
   // Normal model
   if (bpos==0) {
     int i;
-    for (i=15; i>0; --i)  // update order 0-11 context hashes
-      cxt[i]=cxt[i-1]*257+(c4&255)+1;
-    for (i=0; i<7; ++i)
-      cm.set(cxt[i]);
-    rcm7.set(cxt[7]);
-    cm.set(cxt[8]);
-    rcm9.set(cxt[10]);
-    rcm10.set(cxt[12]);
-    cm.set(cxt[14]);
+    for (i=15; i>0; --i){  // update order 0-11 context hashes
+      cxt1[i]=cxt1[i-1]*257+(c4&252)+1;
+      cxt2[i]=cxt2[i-1]*257+(c4&227)+1;
+      cxt3[i]=cxt3[i-1]*257+(c4&31)+1;
+    }
+    for (i=0; i<7; ++i){
+      cm.set(cxt1[i]);
+      cm.set(cxt2[i]);
+      cm.set(cxt3[i]);
+    }
+    rcm7.set(cxt1[7]);
+    cm.set(cxt1[8]);
+    cm.set(cxt2[8]);
+    cm.set(cxt3[8]);
+    rcm9.set(cxt1[10]);
+    rcm10.set(cxt1[12]);
+    cm.set(cxt1[14]);
+    cm.set(cxt2[14]);
+    cm.set(cxt3[14]);
   }
   int order=cm.mix(m);
 
