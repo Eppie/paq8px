@@ -3832,13 +3832,15 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
         if (e8e9pos==0 || e8e9pos>abspos[a]) e8e9pos=abspos[a];
       }
       else e8e9count=0;
-      if (type!=EXE && e8e9count>=4 && e8e9pos>5)
+      if (type==DEFAULT && e8e9count>=4 && e8e9pos>5)
         return fseek(in, start+e8e9pos-5, SEEK_SET), EXE;
       abspos[a]=i;
       relpos[r]=i;
     }
-    if (type==EXE && i-e8e9last>0x1000)
-      return fseek(in, start+e8e9last, SEEK_SET), DEFAULT;
+    if (i-e8e9last>0x1000) {
+      if (type==EXE) return fseek(in, start+e8e9last, SEEK_SET), DEFAULT;
+      e8e9count=e8e9pos=0;
+    }
   }
   return type;
 }
