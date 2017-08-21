@@ -1,4 +1,4 @@
-/* paq8px file compressor/archiver.  Release by Jan Ondrus, Oct. 29, 2009
+/* paq8px file compressor/archiver.  Release by Jan Ondrus, Nov. 5, 2009
 
     Copyright (C) 2008 Matt Mahoney, Serge Osnach, Alexander Ratushnyak,
     Bill Pettis, Przemyslaw Skibinski, Matthew Fite, wowtiger, Andrew Paterson,
@@ -1297,7 +1297,7 @@ Mixer::Mixer(int n, int m, int s, int w):
     pr[i]=2048;
   for (i=0; i<N*M; ++i)
     wx[i]=w;
-  if (S>1) mp=new Mixer(S, 1, 1, 0x7fff);
+  if (S>1) mp=new Mixer(S, 1, 1);
 }
 
 //////////////////////////// APM1 //////////////////////////////
@@ -2967,24 +2967,31 @@ void exeModel(Mixer& m) {
 // 1 or 2 byte context.
 
 void indirectModel(Mixer& m) {
-  static ContextMap cm(MEM, 6);
+  static ContextMap cm(MEM, 9);
   static U32 t1[256];
   static U16 t2[0x10000];
+  static U16 t3[0x8000];
 
   if (!bpos) {
-    U32 d=c4&0xffff, c=d&255;
+    U32 d=c4&0xffff, c=d&255, d2=(buf(1)&31)+32*(buf(2)&31)+1024*(buf(3)&31);
     U32& r1=t1[d>>8];
     r1=r1<<8|c;
     U16& r2=t2[c4>>8&0xffff];
     r2=r2<<8|c;
+    U16& r3=t3[(buf(2)&31)+32*(buf(3)&31)+1024*(buf(4)&31)];
+    r3=r3<<8|c;
     const U32 t=c|t1[c]<<8;
     const U32 t0=d|t2[d]<<16;
+    const U32 ta=d2|t3[d2]<<16;
     cm.set(t);
     cm.set(t0);
+    cm.set(ta);
     cm.set(t&0xff00);
     cm.set(t0&0xff0000);
+    cm.set(ta&0xff0000);
     cm.set(t&0xffff);
     cm.set(t0&0xffffff);
+    cm.set(ta&0xffffff);
   }
   cm.mix(m);
 }
@@ -3151,9 +3158,9 @@ void nestModel(Mixer& m)
     cm.set((13*vc+ic)&0xffff);
     cm.set((vc/3+pc)&0xffff);
     cm.set((7*wc+qc)&0xffff);
-    cm.set((1*vc)&0xffff);
-    cm.set((3*pc)&0xffff);
-    cm.set(ic&0xffff);
+    cm.set((vc&0xffff)|((c4&0xff)<<16));
+    cm.set(((3*pc)&0xffff)|((c4&0xff)<<16));
+    cm.set((ic&0xffff)|((c4&0xff)<<16));
     cm.set(mask);
     cm.set((mask<<8)|buf(1));
     cm.set((mask<<17)|(buf(2)<<8)|buf(3));
@@ -3173,7 +3180,7 @@ typedef enum {DEFAULT, JPEG, HDR, IMAGE1, IMAGE8, IMAGE24, AUDIO, EXE, CD} Filet
 int contextModel2() {
   static ContextMap cm(MEM*32, 9);
   static RunContextMap rcm7(MEM), rcm9(MEM), rcm10(MEM);
-  static Mixer m(825, 3095, 7, 128);
+  static Mixer m(845, 3095, 7);
   static U32 cxt[16];  // order 0-11 contexts
   static Filetype ft2,filetype=DEFAULT;
   static int size=0;  // bytes remaining in block
@@ -3247,7 +3254,7 @@ int contextModel2() {
 
   m.set(c1+8, 264);
   m.set(c0, 256);
-  m.set(order+8*(c4>>5&7)+64*(c1==c2)+128*(filetype==EXE), 256);
+  m.set(order+8*(c4>>6&3)+32*(bpos==0)+64*(c1==c2)+128*(filetype==EXE), 256);
   m.set(c2, 256);
   m.set(c3, 256);
   m.set(ismatch, 256);
