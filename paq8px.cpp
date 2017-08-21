@@ -1,4 +1,4 @@
-/* paq8px file compressor/archiver.  Release by Jan Ondrus, Jun. 13, 2009
+/* paq8px file compressor/archiver.  Release by Jan Ondrus, Jun. 17, 2009
 
     Copyright (C) 2008 Matt Mahoney, Serge Osnach, Alexander Ratushnyak,
     Bill Pettis, Przemyslaw Skibinski, Matthew Fite, wowtiger, Andrew Paterson,
@@ -3875,7 +3875,7 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
       abspos[a]=i;
       relpos[r]=i;
     }
-    if (i-e8e9last>0x1000) {
+    if (i-e8e9last>0x4000) {
       if (type==EXE) return fseek(in, start+e8e9last, SEEK_SET), DEFAULT;
       e8e9count=e8e9pos=0;
     }
@@ -4070,7 +4070,7 @@ void compressRecursive(FILE *in, long n, Encoder &en, char *blstr, int it=0, int
     if (len>0) {
       s2-=len;
       sprintf(blstr,"%s%d",b2,blnum++);
-      printf(" %-12s | %9s |%10d bytes [%d - %d]",blstr,typenames[type],len,begin,end-1);
+      printf(" %-11s | %-9s |%10d bytes [%d - %d]",blstr,typenames[type],len,begin,end-1);
       if (type==AUDIO) printf(" (%s)", audiotypes[info%4]);
       else if (type==IMAGE1 || type==IMAGE8 || type==IMAGE24) printf(" (width: %d)", info);
       else if (type==CD) printf(" (m%d/f%d)", info==1?1:2, info!=3?1:2);
