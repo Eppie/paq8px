@@ -1,4 +1,4 @@
-/* paq8px file compressor/archiver.  Release by Jan Ondrus, May. 09, 2009
+/* paq8px file compressor/archiver.  Release by Jan Ondrus, May. 10, 2009
 
     Copyright (C) 2008 Matt Mahoney, Serge Osnach, Alexander Ratushnyak,
     Bill Pettis, Przemyslaw Skibinski, Matthew Fite, wowtiger, Andrew Paterson,
@@ -599,10 +599,13 @@ Modified wordModel from paq8p3
 Modified .pbm, .pgm, .ppm, .bmp, .rgb detection (from paq8p3)
 Modified WAV model (from paq8p_)
 Modified JPEG model (from paq8p2)
-Renamed bmpModel (24-bit) to im24bitModel + .ppm compression added (from paq8p3)
-Added bmpModel1 (1-bit) and PBM models (from paq8p3)
+Added im1bitModel (1-bit) (from paq8p3)
+Added compression of PPM, PBM images (from paq8p3)
 Removed pic model
-Added compression of (24-bit) TGA image data
+Modified EXE transformation (e8/e9)
+Changed image and audio data handling (separated in blocks)
+Added compression of (8-bit, 24-bit) TGA image data
+Improved TIFF image detection
 */
 
 #define PROGNAME "paq8px"  // Please change this if you change the program.
@@ -3147,7 +3150,7 @@ int contextModel2() {
   static RunContextMap rcm7(MEM), rcm9(MEM), rcm10(MEM);
   static Mixer m(800, 3088, 7, 128);
   static U32 cxt[16];  // order 0-11 contexts
-  static Filetype ft2,filetype;
+  static Filetype ft2,filetype=DEFAULT;
   static int size=0;  // bytes remaining in block
   static int info=0;  // image width or audio type
   static const char* typenames[8]={"", "JPEG ", "HDR ", "1BIT ", "8BIT ",
@@ -3451,7 +3454,7 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
   int e8e9last=0;   // offset of most recent CALL or JMP
 
   int soi=0, sof=0, sos=0, app=0;  // For JPEG detection - position where found
-  int wavi=0,wavsize,wavch,wavbps;  // For WAVE detection
+  int wavi=0,wavsize,wavch,wavbps,wavm;  // For WAVE detection
   int bmp=0,bsize,imgbpp,bmpx,bmpy,bmpof;  // For BMP detection
   int rgbi=0,rgbx,rgby;  // For RGB detection
   int tga=0,tgax,tgay,tgaz,tgat;  // For TGA detection
@@ -3493,7 +3496,7 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
       return DEFAULT;
 
     // Detect .wav file header
-    if (buf0==0x52494646) wavi=i;
+    if (buf0==0x52494646) wavi=i,wavm=0;
     if (wavi) {
       const int p=i-wavi;
       if (p==4) wavsize=bswap(buf0);
@@ -3501,12 +3504,12 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
       else if (p==16 && (buf1!=0x666d7420 || bswap(buf0)!=16)) wavi=0;
       else if (p==22) wavch=bswap(buf0)&0xffff;
       else if (p==34) wavbps=bswap(buf0)&0xffff;
-      else if (p==36 && buf0!=0x64617461) wavi=0;
-      else if (p==40) {
+      else if (p==40+wavm && buf1!=0x64617461) wavm+=bswap(buf0)+8,wavi=(wavm>0xfffff?0:wavi);
+      else if (p==40+wavm) {
         int wavd=bswap(buf0);
         if ((wavch==1 || wavch==2) && (wavbps==8 || wavbps==16) && wavd>0 && wavsize>=wavd+36
             && wavd%((wavbps/8)*wavch)==0) {
-          dett=AUDIO,deth=44,detd=wavd;
+          dett=AUDIO,deth=44+wavm,detd=wavd;
           info=wavch+wavbps;
           return fseek(in, start+wavi-3, SEEK_SET),HDR;
         }
