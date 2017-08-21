@@ -3183,7 +3183,7 @@ int contextModel2() {
     --size;
     ++blpos;
     if (size==-1) ft2=(Filetype)buf(1);
-    if (size==-5 && ft2!=IMAGE1 && ft2!=IMAGE8 && ft2!=IMAGE24 && ft2!=AUDIO && ft2!=EXE) {
+    if (size==-5 && ft2!=IMAGE1 && ft2!=IMAGE8 && ft2!=IMAGE24 && ft2!=AUDIO) {
       size=buf(4)<<24|buf(3)<<16|buf(2)<<8|buf(1);
       if (ft2==CD) size=0;
       blpos=0;
@@ -3881,13 +3881,18 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
   return type;
 }
 
-int decode_default(Encoder& en) {
-  return en.decompress();
+typedef enum {FDECOMPRESS, FCOMPARE, FDISCARD} FMode;
+
+// Print progress: n is the number of bytes compressed or decompressed
+void printStatus(int n, int size) {
+  printf("%6.2f%%\b\b\b\b\b\b\b", float(100)*n/(size+1)), fflush(stdout);
 }
 
 void encode_cd(FILE* in, FILE* out, int len, int info) {
   const int BLOCK=2352;
   U8 blk[BLOCK];
+  fputc((len%BLOCK)>>8,out);
+  fputc(len%BLOCK,out);
   for (int offset=0; offset<len; offset+=BLOCK) {
     if (offset+BLOCK > len) {
       fread(&blk[0], 1, len-offset, in);
@@ -3902,40 +3907,43 @@ void encode_cd(FILE* in, FILE* out, int len, int info) {
   }
 }
 
-#define MAX_ITER 5
-
-int decode(Encoder& en, int it);
-
-int decode_cd(Encoder& en, int size, int it) {
+int decode_cd(FILE *in, int size, FILE *out, FMode mode, int &diffFound) {
   const int BLOCK=2352;
-  static U8 blki[MAX_ITER][BLOCK];
-  static int statei[MAX_ITER], size2i[MAX_ITER], cdfoi[MAX_ITER], start=0;
-  if (start==0) {
-    start=1;
-    for (int i=0; i<MAX_ITER; i++) statei[i]=size2i[i]=0;
-  }
-  U8 *blk=blki[it];
-  int &state=statei[it], &size2=size2i[it], &cdfo=cdfoi[it];
-
-  if (size2==0) size2=size;
-  size2--;
-  state%=BLOCK;
-  if (state==0 && size2>=BLOCK-1) {
-    int a;
-    if (size2==size-1) {
-      for (int i=12; i<16+4*(blk[15]!=1); i++) blk[i]=decode(en, it);
-      cdfo=1+(blk[15]==3);
+  U8 blk[BLOCK];
+  long i=0, i2=0;
+  int a, bsize, q=fgetc(in);
+  q=(q<<8)+fgetc(in);
+  size-=2;
+  while (i<size) {
+    if (size-i==q) {
+      fread(blk, q, 1, in);
+      fwrite(blk, q, 1, out);
+      i+=q;
+      i2+=q;
+    } else if (i==0) {
+      fread(blk+12, 4, 1, in);
+      if (blk[15]!=1) fread(blk+16, 4, 1, in);
+      bsize=2048+(blk[15]==3)*276;
+      i+=4*(blk[15]!=1)+4;
       a=-1;
-    } else a=(blk[12]<<16)+(blk[13]<<8)+blk[14];
-    for (int i=0; i<2048+276*(cdfo==2); i++) blk[16+i+(blk[15]!=1)*8]=decode(en, it);
-    if (cdfo==2) blk[15]=3;
-    if (size2<2*BLOCK-1 && blk[15]!=1) for (int i=16; i<20; i++) blk[i]=decode(en, it);
+    } else {
+      a=(blk[12]<<16)+(blk[13]<<8)+blk[14];
+    }
+    fread(blk+16+(blk[15]!=1)*8, bsize, 1, in);
+    i+=bsize;
+    if (bsize>2048) blk[15]=3;
+    if (blk[15]!=1 && size-q-i==4) {
+      fread(blk+16, 4, 1, in);
+      i+=4;
+    }
     expand_cd_sector(blk, a, 0);
-  } else if (state==0) {
-    return decode(en, it);
+    if (mode==FDECOMPRESS) fwrite(blk, BLOCK, 1, out);
+    else if (mode==FCOMPARE) for (int j=0; j<BLOCK; ++j) if (blk[j]!=getc(out) && !diffFound) diffFound=i2+j+1;
+    i2+=BLOCK;
   }
-  return blk[state++];
+  return i2;
 }
+
 
 // EXE transform: <encoded-size> <begin> <block>...
 // Encoded-size is 4 bytes, MSB first.
@@ -3973,92 +3981,47 @@ void encode_exe(FILE* in, FILE* out, int len, int begin) {
   }
 }
 
-int decode_exe(Encoder& en, int size) {
+int decode_exe(Encoder& en, int size, FILE *out, FMode mode, int &diffFound, long s1=0, long s2=0) {
   const int BLOCK=0x10000;  // block size
-  static int offset=0, q=0;  // decode state: file offset, queue size
-  static int size2=0;  // where to stop coding
-  static int begin=0;  // offset in file
-  static U8 c[6];  // queue of last 6 bytes, c[0] at front
+  int begin, offset=6, a, showstatus=(s2!=0);
+  U8 c[6];
+  begin=en.decompress()<<24;
+  begin|=en.decompress()<<16;
+  begin|=en.decompress()<<8;
+  begin|=en.decompress();
+  size-=4;
+  for (int i=4; i>=0; i--) c[i]=en.decompress();  // Fill queue
 
-  // Read size from first 4 bytes, MSB first
-  while (offset==size2 && q==0) {
-    size2=size;
-    offset=0;
-    begin=en.decompress()<<24;
-    begin|=en.decompress()<<16;
-    begin|=en.decompress()<<8;
-    begin|=en.decompress();
-  }
-
-  // Fill queue
-  while (offset<size2 && q<6) {
+  while (offset<size+6) {
     memmove(c+1, c, 5);
-    c[0]=en.decompress();
-    ++q;
-    ++offset;
+    if (offset<=size) c[0]=en.decompress();
+    // E8E9 transform: E8/E9 xx xx xx 00/FF -> subtract location from x
+    if ((c[0]==0x00 || c[0]==0xFF) && (c[4]==0xE8 || c[4]==0xE9 || (c[5]==0x0F && (c[4]&0xF0)==0x80))
+     && ((offset-1^offset-6)&-BLOCK)==0 && offset<=size) { // not crossing block boundary
+      a=((c[1]^176)|(c[2]^176)<<8|(c[3]^176)<<16|c[0]<<24)-offset-begin;
+      a<<=7;
+      a>>=7;
+      c[3]=a;
+      c[2]=a>>8;
+      c[1]=a>>16;
+      c[0]=a>>24;
+    }
+    if (mode==FDECOMPRESS) putc(c[5], out);
+    else if (mode==FCOMPARE && c[5]!=getc(out) && !diffFound) diffFound=offset-6+1;
+    if (showstatus && !(offset&0xfff)) printStatus(s1+offset-6, s2);
+    offset++;
   }
-
-  // E8E9 transform: E8/E9 xx xx xx 00/FF -> subtract location from x
-  if (q==6 && (c[0]==0||c[0]==0xff) && (c[4]==0xe8 || c[4]==0xe9 || (c[5]==0x0f && (c[4]&0xf0)==0x80))
-     && ((offset-1^offset-6)&-BLOCK)==0) { // not crossing block boundary
-    int a=((c[1]^176)|(c[2]^176)<<8|(c[3]^176)<<16|c[0]<<24)-offset-begin;
-    a<<=7;
-    a>>=7;
-    c[3]=a;
-    c[2]=a>>8;
-    c[1]=a>>16;
-    c[0]=a>>24;
-  }
-
-  // return oldest byte in queue
-  assert(q>0 && q<=6);
-  return c[--q];
-}
-
-// Decode <type> <len> <data>...
-int decode(Encoder& en, int it=MAX_ITER) {
-  static Filetype type[MAX_ITER];
-  static int len[MAX_ITER], size[MAX_ITER], start=0;
-  int i;
-  if (it==0) return en.decompress(); else it--;
-  if (start==0) {
-    start=1;
-    for (i=0; i<MAX_ITER; i++) len[i]=0;
-  }
-  while (len[it]==0) {
-    type[it]=(Filetype)en.decompress();
-    len[it]=en.decompress()<<24;
-    len[it]|=en.decompress()<<16;
-    len[it]|=en.decompress()<<8;
-    len[it]|=en.decompress();
-    if (len[it]<0) len[it]=1;
-    if (type[it]==IMAGE1 || type[it]==IMAGE8 || type[it]==IMAGE24 || type[it]==AUDIO) for (int i=0;i<4;i++) en.decompress();
-    size[it]=len[it];
-  }
-  --len[it];
-  switch (type[it]) {
-    case EXE:  return decode_exe(en, size[it]);
-    case CD:  return decode_cd(en, size[it], it);
-    default:   return decode_default(en);
-  }
+  return size;
 }
 
 //////////////////// Compress, Decompress ////////////////////////////
 
-// Print progress: n is the number of bytes compressed or decompressed
-void printStatus(int n, int size) {
-  if (n>0 && !(n&0x0fff))
-    printf("%6.2f%%\b\b\b\b\b\b\b", float(100)*n/(size+1)), fflush(stdout);
-}
-
-void direct_encode_block(Filetype type, FILE *in, int len, int info, Encoder &en, int s1, int s2) {
-  if (len>=0) {
-    en.compress(type);
-    en.compress(len>>24);
-    en.compress(len>>16);
-    en.compress(len>>8);
-    en.compress(len);
-  } else len=abs(len);
+void direct_encode_block(Filetype type, FILE *in, int len, Encoder &en, int s1, int s2, int info=-1) {
+  en.compress(type);
+  en.compress(len>>24);
+  en.compress(len>>16);
+  en.compress(len>>8);
+  en.compress(len);
   if (info!=-1) {
     en.compress(info>>24);
     en.compress(info>>16);
@@ -4074,34 +4037,38 @@ void direct_encode_block(Filetype type, FILE *in, int len, int info, Encoder &en
   printf("\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b");
 }
 
-void iter_transform(FILE *in, int filesize, Encoder &en, int it=MAX_ITER, int s1=0, int s2=0) {
+void compressRecursive(FILE *in, long n, Encoder &en, char *blstr, int it=0, int s1=0, int s2=0) {
   static const char* typenames[9]={"default", "jpeg", "hdr",
-    "1-bit-image", "8-bit-image", "24-bit-image", "audio", "exe", "cd"};
-  static const char* audiotypes[4]={"8-bit mono", "8-bit stereo", "16-bit mono",
-    "16-bit stereo"};
+    "1b-image", "8b-image", "24b-image", "audio", "exe", "cd"};
+  static const char* audiotypes[4]={"8b mono", "8b stereo", "16b mono",
+    "16b stereo"};
   Filetype type=DEFAULT;
-  int info;  // image width or audio type
-  int n=filesize, blnum=0;
-  long begin=ftell(in), begin0=begin;
+  int blnum=0, info;  // image width or audio type
+  long begin=ftell(in), end0=begin+n;
   FILE* tmp;
-  if (--it==0) {
-    direct_encode_block(DEFAULT, in, filesize, -1, en, s1, s2);
+  char b2[32];
+  strcpy(b2, blstr);
+  if (b2[0]) strcat(b2, "-");
+  if (it==5) {
+    direct_encode_block(DEFAULT, in, n, en, s1, s2);
     return;
   }
   s2+=n;
+
   // Transform and test in blocks
   while (n>0) {
     Filetype nextType=detect(in, n, type, info);
     long end=ftell(in);
     fseek(in, begin, SEEK_SET);
-    if (end>filesize+begin0) {  // if some detection reports longer then actual size file is
+    if (end>end0) {  // if some detection reports longer then actual size file is
       end=begin+1;
       type=DEFAULT;
     }
     int len=int(end-begin);
     if (len>0) {
       s2-=len;
-      printf("%3d-%d | %12s | %d bytes [%d - %d]",blnum++,MAX_ITER-it-1,typenames[type],len,begin,end-1);
+      sprintf(blstr,"%s%d",b2,blnum++);
+      printf(" %-12s | %9s |%10d bytes [%d - %d]",blstr,typenames[type],len,begin,end-1);
       if (type==AUDIO) printf(" (%s)", audiotypes[info%4]);
       else if (type==IMAGE1 || type==IMAGE8 || type==IMAGE24) printf(" (width: %d)", info);
       else if (type==CD) printf(" (m%d/f%d)", info==1?1:2, info!=3?1:2);
@@ -4109,40 +4076,39 @@ void iter_transform(FILE *in, int filesize, Encoder &en, int it=MAX_ITER, int s1
       if (type==EXE || type==CD) {
         tmp=tmpfile();  // temporary encoded file
         if (!tmp) perror("tmpfile"), quit();
-        fprintf(tmp, "%c%c%c%c%c",type, len>>24, len>>16, len>>8, len);
         if (type==EXE) encode_exe(in, tmp, len, begin);
         else if (type==CD) encode_cd(in, tmp, len, info);
+        const long tmpsize=ftell(tmp);
 
         rewind(tmp);
         en.setFile(tmp);
         fseek(in, begin, SEEK_SET);
-        long j;
-        int c1=0, c2=0;
-        for (j=0; j<len; ++j) if ((c1=decode(en, 1))!=(c2=getc(in))) break;
+        int diffFound=0;
+        if (type==EXE) decode_exe(en, tmpsize, in, FCOMPARE, diffFound);
+        else if (type==CD) decode_cd(tmp, tmpsize, in, FCOMPARE, diffFound);
 
         // Test fails, compress without transform
-        if (j!=len || getc(tmp)!=EOF) {
-          printf("Transform fails at %ld, input=%d decoded=%d, skipping...\n", j, c2, c1);
+        if (diffFound || fgetc(tmp)!=EOF) {
+          printf("Transform fails at %ld, skipping...\n", diffFound-1);
           fseek(in, begin, SEEK_SET);
-          direct_encode_block(DEFAULT, in, len, -1, en, s1, s2);
+          direct_encode_block(DEFAULT, in, len, en, s1, s2);
         } else {
-          const long tmpsize=ftell(tmp)-5;
           rewind(tmp);
-          for (j=0; j<5; ++j) en.compress(getc(tmp));
           if (type==CD) {
-            iter_transform(tmp, tmpsize, en, it, s1, s2);
-          } else {
-            direct_encode_block(type, tmp, -tmpsize, -1, en, s1, s2);
+            en.compress(type), en.compress(tmpsize>>24), en.compress(tmpsize>>16);
+            en.compress(tmpsize>>8), en.compress(tmpsize);
+            compressRecursive(tmp, tmpsize, en, blstr, it+1, s1, s2);
+          } else if (type==EXE) {
+            direct_encode_block(type, tmp, tmpsize, en, s1, s2);
           }
         }
         fclose(tmp);  // deletes
       } else {
         const int i1=(type==IMAGE1 || type==IMAGE8 || type==IMAGE24 || type==AUDIO)?info:-1;
-        direct_encode_block(type, in, len, i1, en, s1, s2);
+        direct_encode_block(type, in, len, en, s1, s2, i1);
       }
       s1+=len;
     }
-
     n-=len;
     type=nextType;
     begin=end;
@@ -4160,7 +4126,8 @@ void compress(const char* filename, long filesize, Encoder& en) {
   if (!in) perror(filename), quit();
   long start=en.size();
   printf("Block segmentation:\n");
-  iter_transform(in, filesize, en);
+  char blstr[32]="";
+  compressRecursive(in, filesize, en, blstr);
   if (in) fclose(in);
   printf("Compressed from %ld to %ld bytes.\n",filesize,en.size()-start);
 }
@@ -4178,34 +4145,59 @@ bool makedir(const char* dir) {
 #endif
 }
 
+
+int decompressRecursive(FILE *out, long size, Encoder& en, FMode mode, int it=0, int s1=0, int s2=0) {
+  Filetype type;
+  long len, i=0;
+  int diffFound=0;
+  FILE *tmp;
+  s2+=size;
+  while (i<size) {
+    type=(Filetype)en.decompress();
+    len=en.decompress()<<24;
+    len|=en.decompress()<<16;
+    len|=en.decompress()<<8;
+    len|=en.decompress();
+
+    if (type==IMAGE1 || type==IMAGE8 || type==IMAGE24 || type==AUDIO) for (int i=0; i<4; ++i) en.decompress();
+    if (type==EXE) len=decode_exe(en, len, out, mode, diffFound, s1, s2);
+    else if (type==CD) {
+      tmp=tmpfile();
+      decompressRecursive(tmp, len, en, FDECOMPRESS, it+1, s1+i, s2-len);
+      if (mode!=FDISCARD) {
+        rewind(tmp);
+        len=decode_cd(tmp, len, out, mode, diffFound);
+      }
+      fclose(tmp);
+    } else {
+      for (int j=i+s1; j<i+s1+len; ++j) {
+        if (!(j&0xfff)) printStatus(j, s2);
+        if (mode==FDECOMPRESS) putc(en.decompress(), out);
+        else if (mode==FCOMPARE) {
+          if (en.decompress()!=fgetc(out) && !diffFound) {
+            mode=FDISCARD;
+            diffFound=j+1;
+          }
+        } else en.decompress();
+      }
+    }
+
+    i+=len;
+  }
+  return diffFound;
+}
+
 // Decompress a file
 void decompress(const char* filename, long filesize, Encoder& en) {
+  FMode mode=FDECOMPRESS;
   assert(en.getMode()==DECOMPRESS);
   assert(filename && filename[0]);
 
   // Test if output file exists.  If so, then compare.
   FILE* f=fopen(filename, "rb");
-  if (f) {
-    printf("Comparing %s %ld -> ", filename, filesize);
-    bool found=false;  // mismatch?
-    for (int i=0; i<filesize; ++i) {
-      printStatus(i, filesize);
-      int c1=found?EOF:getc(f);
-      int c2=decode(en);
-      if (c1!=c2 && !found) {
-        printf("differ at %d: file=%d archive=%d\n", i, c1, c2);
-        found=true;
-      }
-    }
-    if (!found && getc(f)!=EOF)
-      printf("file is longer\n");
-    else if (!found)
-      printf("identical   \n");
-    fclose(f);
-  }
-
-  // Create file
+  if (f) mode=FCOMPARE,printf("Comparing");
   else {
+    // Create file
     f=fopen(filename, "wb");
     if (!f) {  // Try creating directories in path and try again
       String path(filename);
@@ -4220,29 +4212,17 @@ void decompress(const char* filename, long filesize, Encoder& en) {
       }
       f=fopen(filename, "wb");
     }
-
-    // Decompress
-    if (f) {
-      printf("Extracting %s %ld -> ", filename, filesize);
-      for (int i=0; i<filesize; ++i) {
-        printStatus(i, filesize);
-        putc(decode(en), f);
-      }
-      fclose(f);
-      printf("done        \n");
-    }
-
-    // Can't create, discard data
-    else {
-      perror(filename);
-      printf("Skipping %s %ld -> ", filename, filesize);
-      for (int i=0; i<filesize; ++i) {
-        printStatus(i, filesize);
-        decode(en);
-      }
-      printf("not extracted\n");
-    }
+    if (!f) mode=FDISCARD,printf("Skipping"); else printf("Extracting");
   }
+  printf(" %s %ld -> ", filename, filesize);
+
+  // Decompress/Compare
+  int r=decompressRecursive(f, filesize, en, mode);
+  if (mode==FCOMPARE && !r && getc(f)!=EOF) printf("file is longer\n");
+  else if (mode==FCOMPARE && r) printf("differ at %d\n",r-1);
+  else if (mode==FCOMPARE) printf("identical\n");
+  else printf("done   \n");
+  if (f) fclose(f);
 }
 
 //////////////////////////// User Interface ////////////////////////////
