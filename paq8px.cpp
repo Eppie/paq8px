@@ -3525,7 +3525,8 @@ int expand_cd_sector(U8 *data, int a, int test) {
   eccedc_init();
   d2[0]=d2[11]=0;
   for (int i=1; i<11; i++) d2[i]=255;
-  int mode=(data[15]==2?2:1);
+  int mode=(data[15]!=1?2:1);
+  int form=(data[15]==3?2:1);
   if (a==-1) for (int i=12; i<15; i++) d2[i]=data[i]; else {
     int c1=(a&15)+((a>>4)&15)*10;
     int c2=((a>>8)&15)+((a>>12)&15)*10;
@@ -3540,24 +3541,32 @@ int expand_cd_sector(U8 *data, int a, int test) {
     d2[14]=(c1%10)+16*(c1/10);
   }
   d2[15]=mode;
-  if (mode==2) {
-    for (int i=16; i<24; i++) d2[i]=data[i-4*(i>=20)];
-    d2[1]=d2[12],d2[2]=d2[13],d2[3]=d2[14];
-    d2[12]=d2[13]=d2[14]=d2[15]=0;
-  } else {
-    for(int i=2068; i<2076; i++) d2[i]=0;
+  if (mode==2) for (int i=16; i<24; i++) d2[i]=data[i-4*(i>=20)];
+  if (form==1) {
+    if (mode==2) {
+      d2[1]=d2[12],d2[2]=d2[13],d2[3]=d2[14];
+      d2[12]=d2[13]=d2[14]=d2[15]=0;
+    } else {
+      for(int i=2068; i<2076; i++) d2[i]=0;
+    }
+    for (int i=16+8*(mode==2); i<2064+8*(mode==2); i++) d2[i]=data[i];
+    U32 edc=edc_compute(d2+16*(mode==2), 2064-8*(mode==2));
+    for (int i=0; i<4; i++) d2[2064+8*(mode==2)+i]=(edc>>(8*i))&0xff;
+    ecc_compute(d2+12, 86, 24,  2, 86, d2+2076);
+    ecc_compute(d2+12, 52, 43, 86, 88, d2+2248);
+    if (mode==2) {
+      d2[12]=d2[1],d2[13]=d2[2],d2[14]=d2[3],d2[15]=2;
+      d2[1]=d2[2]=d2[3]=255;
+    }
   }
-  for (int i=16+8*(mode==2); i<2064+8*(mode==2); i++) d2[i]=data[i];
-  U32 edc=edc_compute(d2+16*(mode==2), 2064-8*(mode==2));
-  for (int i=0; i<4; i++) d2[2064+8*(mode==2)+i]=(edc>>(8*i))&0xff;
-  ecc_compute(d2+12, 86, 24,  2, 86, d2+2076);
-  ecc_compute(d2+12, 52, 43, 86, 88, d2+2248);
-  if (mode==2) {
-    d2[12]=d2[1],d2[13]=d2[2],d2[14]=d2[3],d2[15]=2;
-    d2[1]=d2[2]=d2[3]=255;
+  for (int i=0; i<2352; i++) if (d2[i]!=data[i] && test) form=2;
+  if (form==2) {
+    for (int i=24; i<2348; i++) d2[i]=data[i];
+    U32 edc=edc_compute(d2+16, 2332);
+    for (int i=0; i<4; i++) d2[2348+i]=(edc>>(8*i))&0xff;
   }
-  for (int i=0; i<2352; i++) if (test && d2[i]!=data[i]) return 1; else data[i]=d2[i];
-  return 0;
+  for (int i=0; i<2352; i++) if (d2[i]!=data[i] && test) return 0; else data[i]=d2[i];
+  return mode+form-1;
 }
 
 // Detect EXE or JPEG data
@@ -3596,27 +3605,27 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
     buf1=buf1<<8|buf0>>24;
     buf0=buf0<<8|c;
 
-    // CD sectors detection (mode 1 and mode 2 XA form 1 - 2352 bytes)
+    // CD sectors detection (mode 1 and mode 2 form 1+2 - 2352 bytes)
     if (buf1==0x00ffffff && buf0==0xffffffff && !cdi) cdi=i,cda=-1;
     if (cdi && i>cdi) {
       const int p=(i-cdi)%2352;
-      if (p==8 && (buf1!=0xffffff00 || (i-cdi>2352 && cdm!=(buf0&0xff)))) cdi=0;
-      else if (p==8) cdm=(buf0&0xff),cdi=(cdm!=1&&cdm!=2)?0:cdi;
-      else if (p==16 && cdm==2 && (buf0!=buf1 || (i-cdi>2352 && buf0!=cdf))) cdi=0;
-      else if (p==20 && cdm==2) cdf=buf1;
-      else if (p==2068 && cdm==1 && (buf1!=0 || buf0!=0)) cdi=0;
-      else if (p==0) {
+      if (p==8 && (buf1!=0xffffff00 || ((buf0&0xff)!=1 && (buf0&0xff)!=2))) cdi=0;
+      else if (p==16 && i+2336<n) {
         U8 data[2352];
         long savedpos=ftell(in);
-        fseek(in, start+i-2352-7, SEEK_SET);
+        fseek(in, start+i-23, SEEK_SET);
         fread(data, 1, 2352, in);
         fseek(in, savedpos, SEEK_SET);
-        if (!expand_cd_sector(data, cda, 1)) {
-          if (type!=CD) return fseek(in, start+cdi-7, SEEK_SET), CD;
+        int t=expand_cd_sector(data, cda, 1);
+        if (t!=cdm) cdm=t*(i-cdi<2352);
+        if (cdm && cda!=10 && (cdm==1 || buf0==buf1)) {
+          if (type!=CD) return info=cdm,fseek(in, start+cdi-7, SEEK_SET), CD;
           cda=(data[12]<<16)+(data[13]<<8)+data[14];
+          if (cdm!=1 && i-cdi>2352 && buf0!=cdf) cda=10;
+          if (cdm!=1) cdf=buf0;
         } else cdi=0;
       }
-      if (!cdi && type==CD) return fseek(in, start+(p==0?i-2352:i-p)-7, SEEK_SET), DEFAULT;
+      if (!cdi && type==CD) return fseek(in, start+i-p-7, SEEK_SET), DEFAULT;
     }
     if (type==CD) continue;
 
@@ -3876,17 +3885,19 @@ int decode_default(Encoder& en) {
   return en.decompress();
 }
 
-void encode_cd(FILE* in, FILE* out, int len) {
+void encode_cd(FILE* in, FILE* out, int len, int info) {
   const int BLOCK=2352;
-  Array<U8> blk(BLOCK);
+  U8 blk[BLOCK];
   for (int offset=0; offset<len; offset+=BLOCK) {
     if (offset+BLOCK > len) {
       fread(&blk[0], 1, len-offset, in);
       fwrite(&blk[0], 1, len-offset, out);
     } else {
       fread(&blk[0], 1, BLOCK, in);
-      if (offset==0) fwrite(&blk[12], 1, 4+4*(blk[15]==2), out);
-      fwrite(&blk[16+8*(blk[15]==2)], 1, 2048, out);
+      if (info==3) blk[15]=3;
+      if (offset==0) fwrite(&blk[12], 1, 4+4*(blk[15]!=1), out);
+      fwrite(&blk[16+8*(blk[15]!=1)], 1, 2048+276*(info==3), out);
+      if (offset+BLOCK*2 > len && blk[15]!=1) fwrite(&blk[16], 1, 4, out);
     }
   }
 }
@@ -3897,18 +3908,28 @@ int decode(Encoder& en, int iter);
 
 int decode_cd(Encoder& en, int size, int it) {
   const int BLOCK=2352;
-  static U8 blk[BLOCK];
-  static int state=0, size2=0;
+  static U8 blki[MAX_ITER][BLOCK];
+  static int statei[MAX_ITER], size2i[MAX_ITER], cdfoi[MAX_ITER], start=0;
+  if (start==0) {
+    start=1;
+    for (int i=0; i<MAX_ITER; i++) statei[i]=size2i[i]=0;
+  }
+  U8 *blk=blki[it];
+  int &state=statei[it], &size2=size2i[it], &cdfo=cdfoi[it];
+
   if (size2==0) size2=size;
   size2--;
   state%=BLOCK;
   if (state==0 && size2>=BLOCK-1) {
     int a;
     if (size2==size-1) {
-      for (int i=12; i<16+4*(blk[15]==2); i++) blk[i]=decode(en, it);
+      for (int i=12; i<16+4*(blk[15]!=1); i++) blk[i]=decode(en, it);
+      cdfo=1+(blk[15]==3);
       a=-1;
     } else a=(blk[12]<<16)+(blk[13]<<8)+blk[14];
-    for (int i=0; i<2048; i++) blk[16+i+(blk[15]==2)*8]=decode(en, it);
+    for (int i=0; i<2048+276*(cdfo==2); i++) blk[16+i+(blk[15]!=1)*8]=decode(en, it);
+    if (cdfo==2) blk[15]=3;
+    if (size2<2*BLOCK-1 && blk[15]!=1) for (int i=16; i<20; i++) blk[i]=decode(en, it);
     expand_cd_sector(blk, a, 0);
   } else if (state==0) {
     return decode(en, it);
@@ -4081,13 +4102,14 @@ void iter_transform(FILE *in, int filesize, Encoder &en, int it=MAX_ITER) {
       printf("%3d-%d | %12s | %d bytes [%d - %d]",blnum++,MAX_ITER-it-1,typenames[type],len,begin,end-1);
       if (type==AUDIO) printf(" (%s)", audiotypes[info%4]);
       else if (type==IMAGE1 || type==IMAGE8 || type==IMAGE24) printf(" (width: %d)", info);
+      else if (type==CD) printf(" (m%d/f%d)", info==1?1:2, info!=3?1:2);
       printf("\n");
       if (type==EXE || type==CD) {
         tmp=tmpfile();  // temporary encoded file
         if (!tmp) perror("tmpfile"), quit();
         fprintf(tmp, "%c%c%c%c%c",type, len>>24, len>>16, len>>8, len);
         if (type==EXE) encode_exe(in, tmp, len, begin);
-        else if (type==CD) encode_cd(in, tmp, len);
+        else if (type==CD) encode_cd(in, tmp, len, info);
 
         rewind(tmp);
         en.setFile(tmp);
