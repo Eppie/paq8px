@@ -3550,7 +3550,7 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
       else if (p==16 && (((buf1>>16)&0xff)!=0x13 || buf0!=0x5343524d)) s3mi=0;
       else if (p==16) {
         long savedpos=ftell(in);
-        int b[31],sam_start=(1<<16),sam_end,ok=1;
+        int b[31],sam_start=(1<<16),sam_end=0,ok=1;
         for (int j=0;j<s3mni;j++) {
           fseek(in, start+s3mi-31+0x60+s3mno+j*2, SEEK_SET);
           int i1=getc(in);
