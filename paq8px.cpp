@@ -873,6 +873,7 @@ int c0=1; // Last 0-7 bits of the partial byte with a leading 1 bit (1-255)
 U32 c4=0; // Last 4 whole bytes, packed.  Last byte is bits 0-7.
 int bpos=0; // bits in c0 (0 to 7)
 Buf buf;  // Rotating input queue set by Predictor
+int blpos=0; // Relative position in block
 
 ///////////////////////////// ilog //////////////////////////////
 
@@ -2258,7 +2259,7 @@ void im1bitModel(Mixer& m, int w) {
 
 //////////////////////////// jpegModel /////////////////////////
 
-// Model JPEG. Return 1-257 if a JPEG file is detected or else 0.
+// Model JPEG. Return 1 if a JPEG file is detected or else 0.
 // Only the baseline and 8 bit extended Huffman coded DCT modes are
 // supported.  The model partially decodes the JPEG image to provide
 // context for the Huffman coded symbols.
@@ -2688,6 +2689,9 @@ int jpegModel(Mixer& m) {
   if (!jpeg || !data) return next_jpeg;
   if (buf(1+(!bpos))==FF) {
     m.add(128);
+    m.set(1, 8);
+    m.set(0, 257);
+    m.set(buf(1), 256);
     return 1;
   }
 
@@ -2769,7 +2773,10 @@ int jpegModel(Mixer& m) {
   pr=a1.p(pr, hc&511|(adv_pred[1]==0?0:(abs(adv_pred[1])-4)&63)<<9, 1023);
   pr=a2.p(pr, hc&255|coef<<8, 255);
   m.add(stretch(pr));
-  return 2+(hc&255);
+  m.set(1, 8);
+  m.set(1+(hc&255), 257);
+  m.set(buf(1), 256);
+  return 1;
 }
 
 //////////////////////////// wavModel /////////////////////////////////
@@ -2779,151 +2786,116 @@ int jpegModel(Mixer& m) {
 // Based on 'An asymptotically Optimal Predictor for Stereo Lossless Audio Compression'
 // by Florin Ghido.
 
-  static int S,D;
-  static int wmode;
-
-
-// 32-bit little endian number at buf(i)..buf(i-3)
-inline U32 i4(int i) {
-  assert(i>3);
-  return buf(i)+256*buf(i-1)+65536*buf(i-2)+16777216*buf(i-3);
-}
-
-// 16-bit
-inline int i2(int i) {
-  assert(i>1);
-  return buf(i)+256*buf(i-1);
-}
+static int S,D;
+static int wmode;
 
 inline int s2(int i) {
-    return int(short(buf(i)+256*buf(i-1)));
+  return int(short(buf(i)+256*buf(i-1)));
 }
 
 inline int X(int i, int j) {
   if (wmode==18) {
-     if (i<=S) return s2(i+j<<2); else return s2((i+j-S<<2)-2);
+    if (i<=S) return s2(i+j<<2); else return s2((i+j-S<<2)-2);
   }
-     else if (wmode==17) return s2(i+j<<1);
-          else if (wmode==10) {
-                  if (i<=S) return buf(i+j<<1); else return buf((i+j-S<<1)-1);
-          }
-               else return buf(i+j);
+  else if (wmode==17) return s2(i+j<<1);
+  else if (wmode==10) {
+    if (i<=S) return buf(i+j<<1); else return buf((i+j-S<<1)-1);
+  }
+  else return buf(i+j);
 }
 
-int wavModel(Mixer& m) {
-  static int channels;  // number of channels
-  static int bits;  // bits per sample
-  static int bytes;  // bytes per sample
-  static int eof=0;     // end of wav
-  static int s=0;  // size in bytes
-  static int w,K=256>>level;
+int wavModel(Mixer& m, int info) {
   static int pr[3][2], n[2], counter[2];
-  int chn,ch,msb,j,k,l,i=0;
+  static double F[49][49][2],L[49][49];
+  int j,k,l,i=0;
   double sum,a=0.996;
-  double F[49][49][2],L[49][49];
   const int SC=0x20000;
   static SmallStationaryContextMap scm1(SC), scm2(SC), scm3(SC), scm4(SC), scm5(SC), scm6(SC), scm7(SC);
   static ContextMap cm(MEM*4, 10);
 
-  // Detect .wav file header
-  if (!bpos && buf(8)=='d' && buf(7)=='a' && buf(6)=='t' && buf(5)=='a') {
-    for (int i=32; i<=1000; i++) 
-      if (buf(i)=='f' && buf(i-1)=='m' && buf(i-2)=='t' && buf(i-3)==' ' && (i2(i-8)==1||i2(i-8)==65534)) {
-    bits=buf(i-22);
-    bytes=bits+7>>3;
-    channels=buf(i-10);
-    w=channels*bytes;
-    s=i4(4);
-    if ((channels==1 || channels==2) && (bits==8 || bits==16)) {
-      eof=pos+s;
-      for (int j=0; j<channels; j++) {
-          for (k=0; k<=S+D; k++) for (l=k; l<=S+D; l++) F[k][l][j]=0;
-          F[1][0][j]=1;
-          n[j]=counter[j]=0;
-      } 
-      wmode=channels+bits; 
-      printf("WAV %ibits/",bits);
-      if (channels==1) {printf("mono "); S=48; D=0;}
-         else {printf("stereo "); S=36; D=12;} 
+  int bits=info>16?16:8;
+  int channels=info&3;
+  int w=channels*(bits>>3);
+  if (blpos==0) {
+    for (int j=0; j<channels; j++) {
+      for (k=0; k<=S+D; k++) for (l=k; l<=S+D; l++) F[k][l][j]=0;
+      F[1][0][j]=1;
+      n[j]=counter[j]=0;
     }
-      else eof=pos;
-      }
   }
-  if (pos>eof) return bits=channels=0;
-
+  wmode=info;
+  if (channels==1) S=48,D=0; else S=36,D=12;
   // Select previous samples and predicted sample as context
   if (!bpos) {
-    msb=(pos+s-eof)%bytes;
-    ch=(pos+s-eof)%w;
-    chn=ch/bytes;
-  if (!msb) {
-    for (l=0; l<=S+D; l++) if (l<counter[chn]||(l-S-1>=0&&l-S-1<counter[chn])) F[0][l][chn]=F[0][l][chn]*a+X(0,1)*X(l,1);
-    if (channels==2) {
-       for (l=S+1; l<=S+D; l++) if (l-S-1<counter[chn]) F[S+1][l][chn]=F[S+1][l][chn]*a+X(S+1,1)*X(l,1);
-       for (k=1; k<=S; k++) if (k<counter[chn]) F[k][S+1][chn]=F[k][S+1][chn]*a+X(k,1)*X(S+1,1);
-    }
-    if (++n[chn]==K) {        
-       if (channels==1) for (k=1; k<=S+D; k++) for (l=k; l<=S+D; l++) F[k][l][chn]=(F[k-1][l-1][chn]-X(k-1,1)*X(l-1,1))/a;
-          else for (k=1; k<=S+D; k++) if (k!=S+1) for (l=k; l<=S+D; l++) if (l!=S+1) F[k][l][chn]=(F[k-1][l-1][chn]-X(k-1,1)*X(l-1,1))/a;
-       for (i=1; i<=S+D; i++) {
+    const int ch=blpos%w;
+    const int msb=ch%(bits>>3);
+    const int chn=ch/(bits>>3);
+    if (!msb) {
+      for (l=0; l<=S+D; l++) if (l<counter[chn]||(l-S-1>=0&&l-S-1<counter[chn])) F[0][l][chn]=F[0][l][chn]*a+X(0,1)*X(l,1);
+      if (channels==2) {
+        for (l=S+1; l<=S+D; l++) if (l-S-1<counter[chn]) F[S+1][l][chn]=F[S+1][l][chn]*a+X(S+1,1)*X(l,1);
+        for (k=1; k<=S; k++) if (k<counter[chn]) F[k][S+1][chn]=F[k][S+1][chn]*a+X(k,1)*X(S+1,1);
+      }
+      if (++n[chn]==(256>>level)) {
+        if (channels==1) for (k=1; k<=S+D; k++) for (l=k; l<=S+D; l++) F[k][l][chn]=(F[k-1][l-1][chn]-X(k-1,1)*X(l-1,1))/a;
+        else for (k=1; k<=S+D; k++) if (k!=S+1) for (l=k; l<=S+D; l++) if (l!=S+1) F[k][l][chn]=(F[k-1][l-1][chn]-X(k-1,1)*X(l-1,1))/a;
+        for (i=1; i<=S+D; i++) {
            sum=F[i][i][chn];
            for (k=1; k<i; k++) sum-=L[i][k]*L[i][k];
            if (sum>0) {
-              L[i][i]=sqrt(sum);
-              for (j=(i+1); j<=S+D; j++) {
-                  sum=F[i][j][chn];
-                  for (k=1; k<i; k++) sum-=L[j][k]*L[i][k];
-                  L[j][i]=sum/L[i][i];
-              }
-           }
-              else break;
-       }
-       if (i>S+D && counter[chn]>S+1) { 
+             L[i][i]=sqrt(sum);
+             for (j=(i+1); j<=S+D; j++) {
+               sum=F[i][j][chn];
+               for (k=1; k<i; k++) sum-=L[j][k]*L[i][k];
+               L[j][i]=sum/L[i][i];
+             }
+           } else break;
+        }
+        if (i>S+D && counter[chn]>S+1) {
           for (k=1; k<=S+D; k++) {
-              F[k][0][chn]=F[0][k][chn];
-              for (j=1; j<k; j++) F[k][0][chn]-=L[k][j]*F[j][0][chn];
-              F[k][0][chn]/=L[k][k];
+            F[k][0][chn]=F[0][k][chn];
+            for (j=1; j<k; j++) F[k][0][chn]-=L[k][j]*F[j][0][chn];
+            F[k][0][chn]/=L[k][k];
           }
           for (k=S+D; k>0; k--) {
-              for (j=k+1; j<=S+D; j++) F[k][0][chn]-=L[j][k]*F[j][0][chn];
-              F[k][0][chn]/=L[k][k];
+            for (j=k+1; j<=S+D; j++) F[k][0][chn]-=L[j][k]*F[j][0][chn];
+            F[k][0][chn]/=L[k][k];
           }
-       }
-       n[chn]=0;
+        }
+        n[chn]=0;
+      }
+      sum=0;
+      for (l=1; l<=S+D; l++) sum+=F[l][0][chn]*X(l,0);
+      pr[2][chn]=pr[1][chn];
+      pr[1][chn]=pr[0][chn];
+      pr[0][chn]=int(floor(sum));
+      counter[chn]++;
     }
-    sum=0;
-    for (l=1; l<=S+D; l++) sum+=F[l][0][chn]*X(l,0);
-    pr[2][chn]=pr[1][chn];
-    pr[1][chn]=pr[0][chn];
-    pr[0][chn]=int(floor(sum));
-    counter[chn]++;
-  }
-  const int x1=buf(1), x2=buf(2), y1=pr[0][chn], y2=pr[1][chn], y3=pr[2][chn];
-  const int t=(msb!=0), z1=s2(w+t), z2=s2(w*2+t), z3=s2(w*3+t), z4=s2(w*4+t), z5=s2(w*5+t);
-  i=ch<<4;
-  if (!msb) {
-    cm.set(hash(++i, y1&0xff));
-    cm.set(hash(++i, y1&0xff, (z1-y2+z2-y3>>1)&0xff));
-    cm.set(hash(++i, x1, y1&0xff));
-    cm.set(hash(++i, x1, x2>>2, y1&0xff));
-    cm.set(hash(++i, y1+z1-y2&0xff));
-    cm.set(hash(++i, x1));
-    cm.set(hash(++i, x1, x2));
-    cm.set(hash(++i, z1&0xff));
-    cm.set(hash(++i, z1*2-z2&0xff));
-    cm.set(hash(++i, z1*3-z2*3+z3&0xff));
-  }
-    else {
-    cm.set(hash(++i, y1+z1-y2>>8));
-    cm.set(hash(++i, y1>>8));
-    cm.set(hash(++i, y1+z1*2-y2*2-z2+y3>>8));
-    cm.set(hash(++i, y1>>8, z1-y2+z2-y3>>9));
-    cm.set(hash(++i, z1>>12));
-    cm.set(hash(++i, x1));
-    cm.set(hash(++i, x1, x2));
-    cm.set(hash(++i, z1>>8));
-    cm.set(hash(++i, z1*2-z2>>8));
-    cm.set(hash(++i, z1*3-z2*3+z3>>8));
+    const int x1=buf(1), x2=buf(2), y1=pr[0][chn], y2=pr[1][chn], y3=pr[2][chn];
+    const int t=(msb!=0), z1=s2(w+t), z2=s2(w*2+t), z3=s2(w*3+t), z4=s2(w*4+t), z5=s2(w*5+t);
+    i=ch<<4;
+    if (!msb) {
+      cm.set(hash(++i, y1&0xff));
+      cm.set(hash(++i, y1&0xff, (z1-y2+z2-y3>>1)&0xff));
+      cm.set(hash(++i, x1, y1&0xff));
+      cm.set(hash(++i, x1, x2>>2, y1&0xff));
+      cm.set(hash(++i, y1+z1-y2&0xff));
+      cm.set(hash(++i, x1));
+      cm.set(hash(++i, x1, x2));
+      cm.set(hash(++i, z1&0xff));
+      cm.set(hash(++i, z1*2-z2&0xff));
+      cm.set(hash(++i, z1*3-z2*3+z3&0xff));
+    } else {
+      cm.set(hash(++i, y1+z1-y2>>8));
+      cm.set(hash(++i, y1>>8));
+      cm.set(hash(++i, y1+z1*2-y2*2-z2+y3>>8));
+      cm.set(hash(++i, y1>>8, z1-y2+z2-y3>>9));
+      cm.set(hash(++i, z1>>12));
+      cm.set(hash(++i, x1));
+      cm.set(hash(++i, x1, x2));
+      cm.set(hash(++i, z1>>8));
+      cm.set(hash(++i, z1*2-z2>>8));
+      cm.set(hash(++i, z1*3-z2*3+z3>>8));
     }
     scm1.set(t*ch);
     scm2.set(t*(z1-x1+y1>>9)&0xff);
@@ -2943,7 +2915,14 @@ int wavModel(Mixer& m) {
   scm6.mix(m);
   scm7.mix(m);
   cm.mix(m);
-  return channels<<8|bits;
+  recordModel(m);
+  static int col=0;
+  if (++col>=w*8) col=0;
+  m.set(3, 8);
+  m.set(col%bits<8, 2);
+  m.set(col%bits, bits);
+  m.set(col, w*8);
+  m.set(c0, 256);
 }
 
 //////////////////////////// exeModel /////////////////////////
@@ -3157,7 +3136,9 @@ void nestModel(Mixer& m)
 
 //////////////////////////// contextModel //////////////////////
 
-typedef enum {DEFAULT, JPEG, IMAGEHDR, IMAGE1, IMAGE8, IMAGE24, EXE, TEXT} Filetype;
+
+typedef enum {DEFAULT, JPEG, HDR, IMAGE1, IMAGE8, IMAGE24, AUDIO, EXE} Filetype;
+
 
 // This combines all the context models with a Mixer.
 
@@ -3166,26 +3147,29 @@ int contextModel2() {
   static RunContextMap rcm7(MEM), rcm9(MEM), rcm10(MEM);
   static Mixer m(800, 3088, 7, 128);
   static U32 cxt[16];  // order 0-11 contexts
-  static Filetype filetype=DEFAULT;
+  static Filetype ft2,filetype;
   static int size=0;  // bytes remaining in block
-  static int imgw=0;  // image width for image blocks
-  static const char* typenames[8]={"", "jpeg ", "imghdr ", "1-bit ", "8-bit ",
-    "24-bit ", "exe ", "text "};
+  static int info=0;  // image width or audio type
+  static const char* typenames[8]={"", "JPEG ", "HDR ", "1BIT ", "8BIT ",
+    "24BIT ", "WAVE ", "EXE "};
 
-  // Parse filetype, size and image width
+  // Parse filetype and size
   if (bpos==0) {
     --size;
-    if (size==-1) filetype=(Filetype)buf(1);
-    if (size==-5 && !(filetype==IMAGE1 || filetype==IMAGE8 || filetype==IMAGE24)) {
+    ++blpos;
+    if (size==0) filetype=DEFAULT;
+    if (size==-1) ft2=(Filetype)buf(1);
+    if (size==-5 && ft2!=IMAGE1 && ft2!=IMAGE8 && ft2!=IMAGE24 && ft2!=AUDIO) {
       size=buf(4)<<24|buf(3)<<16|buf(2)<<8|buf(1);
-      printf("%sblock (%d bytes) ",typenames[filetype],size);
-      if (filetype==EXE) size+=8;
+      if (ft2==EXE) size+=8;
+      blpos=0;
     }
     if (size==-9) {
       size=buf(8)<<24|buf(7)<<16|buf(6)<<8|buf(5);
-      imgw=buf(4)<<24|buf(3)<<16|buf(2)<<8|buf(1);
-      printf("%simage (%d bytes) ",typenames[filetype],size);
+      info=buf(4)<<24|buf(3)<<16|buf(2)<<8|buf(1);
+      blpos=0;
     }
+    if (!blpos) filetype=ft2, printf("%s(%d bytes) ",typenames[filetype],size);
   }
 
   m.update();
@@ -3193,33 +3177,11 @@ int contextModel2() {
 
   // Test for special file types
   int ismatch=ilog(matchModel(m));  // Length of longest matching context
-  if (filetype==IMAGE24) return im24bitModel(m, imgw), m.p();
-  if (filetype==IMAGE8) return im8bitModel(m, imgw), m.p();
-  if (filetype==IMAGE1) im1bitModel(m, imgw);
-
-  int iswav=wavModel(m);  // number of channels and bits per sample if WAV is detected, else 0
-  if (filetype==JPEG) {
-     int isjpeg=jpegModel(m);  // 1-257 if JPEG is detected, else 0
-     if (isjpeg) {
-        m.set(1, 8);
-        m.set(isjpeg-1, 257);
-        m.set(buf(1), 256);
-       return m.p();
-     }
-  }
-  if (iswav>0) {
-    recordModel(m);  
-    int bits=iswav&0xff;
-    int tbits=(iswav>>8)*bits;
-    static int col=0;
-    if (++col>=tbits) col=0;
-    m.set(3, 8);
-    m.set(col%bits<8, 2);
-    m.set(col%bits, bits);
-    m.set(col, tbits);
-    m.set(c0, 256);
-    return m.p();
-  }
+  if (filetype==IMAGE1) im1bitModel(m, info);
+  if (filetype==IMAGE8) return im8bitModel(m, info), m.p();
+  if (filetype==IMAGE24) return im24bitModel(m, info), m.p();
+  if (filetype==AUDIO) return wavModel(m, info), m.p();
+  if (filetype==JPEG) if (jpegModel(m)) return m.p();
 
   // Normal model
   if (bpos==0) {
@@ -3472,12 +3434,12 @@ void Encoder::flush() {
 +    (((x) & 0x0000ff00) <<  8) | \
 +    (((x) & 0x000000ff) << 24))
 
-#define IMG_DET(type,start_pos,header_len,width,height) return imgt=(type),\
-imgh=(header_len),imgd=(width)*(height),imgw=(width),\
-fseek(in, start+(start_pos), SEEK_SET),IMAGEHDR
+#define IMG_DET(type,start_pos,header_len,width,height) return dett=(type),\
+deth=(header_len),detd=(width)*(height),info=(width),\
+fseek(in, start+(start_pos), SEEK_SET),HDR
 
 // Detect EXE or JPEG data
-Filetype detect(FILE* in, int n, Filetype type, int &imgw) {
+Filetype detect(FILE* in, int n, Filetype type, int &info) {
   U32 buf1=0, buf0=0;  // last 8 bytes
   long start=ftell(in);
 
@@ -3487,23 +3449,20 @@ Filetype detect(FILE* in, int n, Filetype type, int &imgw) {
   int e8e9count=0;  // number of consecutive CALL/JMPs
   int e8e9pos=0;    // offset of first CALL or JMP instruction
   int e8e9last=0;   // offset of most recent CALL or JMP
-  // For BMP detection
-  int bmp=0,bsize=0,imgbpp=0,bmpx=0,bmpy=0,bmpimgoff=0;
-  // For PBM, PGM, PPM detection
-  int pgm=0,pgmcomment=0,pgmw=0,pgmh=0,pgm_ptr=0,pgmc=0,pgmn=0;
+
+  int soi=0, sof=0, sos=0, app=0;  // For JPEG detection - position where found
+  int wavi=0,wavsize,wavch,wavbps;  // For WAVE detection
+  int bmp=0,bsize,imgbpp,bmpx,bmpy,bmpof;  // For BMP detection
+  int rgbi=0,rgbx,rgby;  // For RGB detection
+  int tga=0,tgax,tgay,tgaz,tgat;  // For TGA detection
+  int pgm=0,pgmcomment=0,pgmw=0,pgmh=0,pgm_ptr=0,pgmc=0,pgmn=0;  // For PBM, PGM, PPM detection
   char pgm_buf[32];
-  // For JPEG detection
-  int soi=0, sof=0, sos=0, app=0;  // position where found
-  // For .RGB detection
-  int rgbi=0,rgbx=0,rgby=0,rgbz=0;
-  // For .TGA detection
-  int tga=0,tgax=0,tgay=0,tgaz=0,tgat;
 
   // For image detection
-  static int imgh=0,imgd=0;  // image header/data size in bytes
-  static Filetype imgt;  // image type
-  if (imgh) return fseek(in, start+imgh, SEEK_SET),imgh=0,imgt;
-  else if (imgd) return fseek(in, start+imgd, SEEK_SET),imgd=0,DEFAULT;
+  static int deth=0,detd=0;  // detected header/data size in bytes
+  static Filetype dett;  // detected block type
+  if (deth) return fseek(in, start+deth, SEEK_SET),deth=0,dett;
+  else if (detd) return fseek(in, start+detd, SEEK_SET),detd=0,DEFAULT;
 
   for (int i=0; i<n; ++i) {
     int c=getc(in);
@@ -3533,21 +3492,43 @@ Filetype detect(FILE* in, int n, Filetype type, int &imgw) {
         && (buf0&0xff)!=0 && (buf0&0xf8)!=0xd0)
       return DEFAULT;
 
+    // Detect .wav file header
+    if (buf0==0x52494646) wavi=i;
+    if (wavi) {
+      const int p=i-wavi;
+      if (p==4) wavsize=bswap(buf0);
+      else if (p==8 && buf0!=0x57415645) wavi=0;
+      else if (p==16 && (buf1!=0x666d7420 || bswap(buf0)!=16)) wavi=0;
+      else if (p==22) wavch=bswap(buf0)&0xffff;
+      else if (p==34) wavbps=bswap(buf0)&0xffff;
+      else if (p==36 && buf0!=0x64617461) wavi=0;
+      else if (p==40) {
+        int wavd=bswap(buf0);
+        if ((wavch==1 || wavch==2) && (wavbps==8 || wavbps==16) && wavd>0 && wavsize>=wavd+36
+            && wavd%((wavbps/8)*wavch)==0) {
+          dett=AUDIO,deth=44,detd=wavd;
+          info=wavch+wavbps;
+          return fseek(in, start+wavi-3, SEEK_SET),HDR;
+        }
+        wavi=0;
+      }
+    }
+
     // Detect .bmp image
-    if ((buf0&0xffff)==16973) imgbpp=bsize=0,bmp=i;  //possible 'BM'
+    if ((buf0&0xffff)==16973) imgbpp=bsize=bmpx=bmpy=bmpof=0,bmp=i;  //possible 'BM'
     if (bmp) {
       const int p=i-bmp;
       if (p==4) bsize=bswap(buf0); //image size
-      else if (p==12) bmpimgoff=bswap(buf0);
+      else if (p==12) bmpof=bswap(buf0);
       else if (p==16 && buf0!=0x28000000) bmp=0; //windows bmp?
       else if (p==20) bmpx=bswap(buf0),bmp=((bmpx==0||bmpx>0x30000)?0:bmp); //width
       else if (p==24) bmpy=abs((int)bswap(buf0)),bmp=((bmpy==0||bmpy>0x10000)?0:bmp); //height
       else if (p==27) imgbpp=c,bmp=((imgbpp!=1 && imgbpp!=8 && imgbpp!=24)?0:bmp);
       else if (p==31) {
         if (imgbpp!=0 && buf0==0) {
-          if (imgbpp==1) IMG_DET(IMAGE1,bmp-1,bmpimgoff,(((bmpx-1)>>5)+1)*4,bmpy);
-          else if (imgbpp==8) IMG_DET(IMAGE8,bmp-1,bmpimgoff,bmpx+3&-4,bmpy);
-          else if (imgbpp==24) IMG_DET(IMAGE24,bmp-1,bmpimgoff,(bmpx*3)+3&-4,bmpy);
+          if (imgbpp==1) IMG_DET(IMAGE1,bmp-1,bmpof,(((bmpx-1)>>5)+1)*4,bmpy);
+          else if (imgbpp==8) IMG_DET(IMAGE8,bmp-1,bmpof,bmpx+3&-4,bmpy);
+          else if (imgbpp==24) IMG_DET(IMAGE24,bmp-1,bmpof,(bmpx*3)+3&-4,bmpy);
         }
         bmp=0;
       }
@@ -3644,7 +3625,7 @@ Filetype detect(FILE* in, int n, Filetype type, int &imgw) {
     if (tga) {
       if (i-tga==8) tga=(buf1==0?tga:0),tgax=(bswap(buf0)&0xffff),tgay=(bswap(buf0)>>16);
       else if (i-tga==10) {
-        if (tgaz==((buf0&0xFFFF)>>8) && tgax && tgay) {
+        if (tgaz==((buf0&0xffff)>>8) && tgax && tgay) {
           if (tgat==1) IMG_DET(IMAGE8,tga-7,18+256*3,tgax,tgay);
           else if (tgat==2) IMG_DET(IMAGE24,tga-7,18,tgax*3,tgay);
           else if (tgat==3) IMG_DET(IMAGE8,tga-7,18,tgax,tgay);
@@ -3777,11 +3758,11 @@ int decode_exe(Encoder& en) {
 // <type> <size> and call encode_X to convert to type X.
 void encode(FILE* in, FILE* out, int n) {
   Filetype type=DEFAULT;
-  int imgw;  // image width of detected image
+  int info;  // image width or audio type
   int n1=n;
   long begin=ftell(in), begin1=begin;
   while (n>0) {
-    Filetype nextType=detect(in, n, type, imgw);
+    Filetype nextType=detect(in, n, type, info);
     long end=ftell(in);
     fseek(in, begin, SEEK_SET);
     if (end>begin1+n1) { // if some detection reports longer then actual size file is
@@ -3794,8 +3775,9 @@ void encode(FILE* in, FILE* out, int n) {
       switch(type) {
         case IMAGE1:
         case IMAGE8:
-        case IMAGE24:  
-          fprintf(out, "%c%c%c%c", imgw>>24, imgw>>16, imgw>>8, imgw);
+        case IMAGE24:
+        case AUDIO:
+          fprintf(out, "%c%c%c%c", info>>24, info>>16, info>>8, info);
           encode_default(in, out, len);
           break;
         case EXE:  encode_exe(in, out, len, begin); break;
@@ -3819,7 +3801,7 @@ int decode(Encoder& en) {
     len|=en.decompress()<<8;
     len|=en.decompress();
     if (len<0) len=1;
-    if (type==IMAGE1 || type==IMAGE8 || type==IMAGE24) for (int i=0;i<4;i++) en.decompress();
+    if (type==IMAGE1 || type==IMAGE8 || type==IMAGE24 || type==AUDIO) for (int i=0;i<4;i++) en.decompress();
   }
   --len;
   switch (type) {
