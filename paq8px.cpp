@@ -1,4 +1,4 @@
-/* paq8px file compressor/archiver.  Release by Jan Ondrus, Aug. 16, 2009
+/* paq8px file compressor/archiver.  Release by Jan Ondrus, Aug. 17, 2009
 
     Copyright (C) 2008 Matt Mahoney, Serge Osnach, Alexander Ratushnyak,
     Bill Pettis, Przemyslaw Skibinski, Matthew Fite, wowtiger, Andrew Paterson,
@@ -1215,7 +1215,7 @@ extern "C" int dot_product(short *t, short *w, int n);  // in NASM
 void train(short *t, short *w, int n, int err) {
   n=(n+7)&-8;
   for (int i=0; i<n; ++i) {
-    int wt=w[i]+((t[i]*err*2>>16)+1>>1);
+    int wt=w[i]+(((t[i]*err*2>>16)+1)>>1);
     if (wt<-32768) wt=-32768;
     if (wt>32767) wt=32767;
     w[i]=wt;
@@ -1460,7 +1460,7 @@ public:
 
 template <int B>
 inline  U8* BH<B>::operator[](U32 i) {
-  int chk=(i>>16^i)&0xffff;
+  U16 chk=(i>>16^i)&0xffff;
   i=i*M&n;
   U8 *p;
   U16 *cp;
@@ -1476,7 +1476,7 @@ inline  U8* BH<B>::operator[](U32 i) {
   if (j==M) {
     --j;
     memset(tmp, 0, B);
-    *(U16*)tmp=chk;
+    memmove(tmp, &chk, 2);
     if (M>2 && t[(i+j)*B+2]>t[(i+j-1)*B+2]) --j;
   }
   else memcpy(tmp, cp, B);
@@ -3583,16 +3583,16 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
   int e8e9last=0;   // offset of most recent CALL or JMP
 
   int soi=0, sof=0, sos=0, app=0;  // For JPEG detection - position where found
-  int wavi=0,wavsize,wavch,wavbps,wavm;  // For WAVE detection
-  int aiff=0,aiffm,aiffs;  // For AIFF detection
-  int s3mi=0,s3mno,s3mni;  // For S3M detection
-  int bmp=0,bsize,imgbpp,bmpx,bmpy,bmpof;  // For BMP detection
-  int rgbi=0,rgbx,rgby;  // For RGB detection
-  int tga=0,tgax,tgay,tgaz,tgat;  // For TGA detection
+  int wavi=0,wavsize=0,wavch=0,wavbps=0,wavm=0;  // For WAVE detection
+  int aiff=0,aiffm=0,aiffs=0;  // For AIFF detection
+  int s3mi=0,s3mno=0,s3mni=0;  // For S3M detection
+  int bmp=0,imgbpp=0,bmpx=0,bmpy=0,bmpof=0;  // For BMP detection
+  int rgbi=0,rgbx=0,rgby=0;  // For RGB detection
+  int tga=0,tgax=0,tgay=0,tgaz=0,tgat=0;  // For TGA detection
   int pgm=0,pgmcomment=0,pgmw=0,pgmh=0,pgm_ptr=0,pgmc=0,pgmn=0;  // For PBM, PGM, PPM detection
   char pgm_buf[32];
-  int cdi=0,cda,cdm;  // For CD sectors detection
-  U32 cdf;
+  int cdi=0,cda=0,cdm=0;  // For CD sectors detection
+  U32 cdf=0;
 
   // For image detection
   static int deth=0,detd=0;  // detected header/data size in bytes
@@ -3732,11 +3732,10 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
     }
 
     // Detect .bmp image
-    if ((buf0&0xffff)==16973) imgbpp=bsize=bmpx=bmpy=bmpof=0,bmp=i;  //possible 'BM'
+    if ((buf0&0xffff)==16973) imgbpp=bmpx=bmpy=bmpof=0,bmp=i;  //possible 'BM'
     if (bmp) {
       const int p=i-bmp;
-      if (p==4) bsize=bswap(buf0); //image size
-      else if (p==12) bmpof=bswap(buf0);
+      if (p==12) bmpof=bswap(buf0);
       else if (p==16 && buf0!=0x28000000) bmp=0; //windows bmp?
       else if (p==20) bmpx=bswap(buf0),bmp=((bmpx==0||bmpx>0x30000)?0:bmp); //width
       else if (p==24) bmpy=abs((int)bswap(buf0)),bmp=((bmpy==0||bmpy>0x10000)?0:bmp); //height
@@ -3911,7 +3910,7 @@ int decode_cd(FILE *in, int size, FILE *out, FMode mode, int &diffFound) {
   const int BLOCK=2352;
   U8 blk[BLOCK];
   long i=0, i2=0;
-  int a, bsize, q=fgetc(in);
+  int a=-1, bsize=0, q=fgetc(in);
   q=(q<<8)+fgetc(in);
   size-=2;
   while (i<size) {
@@ -3925,7 +3924,6 @@ int decode_cd(FILE *in, int size, FILE *out, FMode mode, int &diffFound) {
       if (blk[15]!=1) fread(blk+16, 4, 1, in);
       bsize=2048+(blk[15]==3)*276;
       i+=4*(blk[15]!=1)+4;
-      a=-1;
     } else {
       a=(blk[12]<<16)+(blk[13]<<8)+blk[14];
     }
