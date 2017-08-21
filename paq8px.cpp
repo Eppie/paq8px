@@ -2,7 +2,7 @@
 
     Copyright (C) 2008 Matt Mahoney, Serge Osnach, Alexander Ratushnyak,
     Bill Pettis, Przemyslaw Skibinski, Matthew Fite, wowtiger, Andrew Paterson,
-    Jan Ondrus, Andreas Morphis, Pavel L. Holoborodko, KZ.
+    Jan Ondrus, Andreas Morphis, Pavel L. Holoborodko, KZ., Simon Berger
 
     LICENSE
 
@@ -350,7 +350,7 @@ modeled with both a run map and a nonstationary map unless indicated.
   pixels already seen.  Image width is assumed to be 1728 bits (as
   in calgary/pic).
 
-- Image.  For uncompressed 24-bit color BMP and TIFF images.  Contexts
+- Image.  For uncompressed 24-bit color BMP, TIFF and TGA images.  Contexts
   are the high order bits of the surrounding pixels and linear
   combinations of those pixels, including other color planes.  The
   image width is detected from the file header.  When an image is
@@ -602,6 +602,7 @@ Modified JPEG model (from paq8p2)
 Renamed bmpModel (24-bit) to im24bitModel + .ppm compression added (from paq8p3)
 Added bmpModel1 (1-bit) and PBM models (from paq8p3)
 Removed pic model
+Added compression of (24-bit) TGA image data
 */
 
 #define PROGNAME "paq8px"  // Please change this if you change the program.
@@ -3497,6 +3498,8 @@ Filetype detect(FILE* in, int n, Filetype type, int &imgw) {
   int rgbi=0,rgbx=0,rgby=0,rgbz=0;
   // For .TIFF detection
   int tiff=0;
+  // For .TGA detection
+  int tga=0,tgax=0, tgay=0, tgaz=0;;
 
   // For image detection
   static int imgh=0,imgd=0;  // image header/data size in bytes
@@ -3537,16 +3540,16 @@ Filetype detect(FILE* in, int n, Filetype type, int &imgw) {
     if (bmp) {
       const int p=i-bmp;
       if (p==4) bsize=bswap(buf0); //image size
-      if (p==12) bmpimgoff=bswap(buf0);
-      if (p==16 && buf0!=0x28000000) bmp=0; //windows bmp?
-      if (p==20) bmpx=bswap(buf0),bmp=((bmpx==0||bmpx>0x30000)?0:bmp); //width
-      if (p==24) bmpy=abs(bswap(buf0)),bmp=((bmpy==0||bmpy>0x10000)?0:bmp); //height
-      if (p==27) imgbpp=c,bmp=((imgbpp!=1 && imgbpp!=8 && imgbpp!=24)?0:bmp);
-      if (p==31) imgcomp=buf0,bmp=(imgcomp!=0?0:bmp);
+      else if (p==12) bmpimgoff=bswap(buf0);
+      else if (p==16 && buf0!=0x28000000) bmp=0; //windows bmp?
+      else if (p==20) bmpx=bswap(buf0),bmp=((bmpx==0||bmpx>0x30000)?0:bmp); //width
+	  else if (p==24) bmpy=abs((int)bswap(buf0)),bmp=((bmpy==0||bmpy>0x10000)?0:bmp); //height
+      else if (p==27) imgbpp=c,bmp=((imgbpp!=1 && imgbpp!=8 && imgbpp!=24)?0:bmp);
+      else if (p==31) imgcomp=buf0,bmp=(imgcomp!=0?0:bmp);
       if (imgbpp!=0 && imgcomp==0) {
         if (imgbpp==1) IMG_DET(IMAGE1,bmp-1,bmpimgoff,(((bmpx-1)>>5)+1)*4,bmpy);
-        if (imgbpp==8) IMG_DET(IMAGE8,bmp-1,bmpimgoff,bmpx+3&-4,bmpy);
-        if (imgbpp==24) IMG_DET(IMAGE24,bmp-1,bmpimgoff,(bmpx*3)+3&-4,bmpy);
+        else if (imgbpp==8) IMG_DET(IMAGE8,bmp-1,bmpimgoff,bmpx+3&-4,bmpy);
+        else if (imgbpp==24) IMG_DET(IMAGE24,bmp-1,bmpimgoff,(bmpx*3)+3&-4,bmpy);
       }
     }
 
@@ -3582,24 +3585,24 @@ Filetype detect(FILE* in, int n, Filetype type, int &imgw) {
     if (rgbi) {
       const int p=i-rgbi;
       if (p==1 && c!=0) rgbi=0;
-      if (p==2 && c!=1) rgbi=0;
-      if (p==4 && (buf0&0xFFFF)!=1 && (buf0&0xFFFF)!=2 && (buf0&0xFFFF)!=3) rgbi=0;
-      if (p==6) rgbx=buf0&0xffff,rgbi=(rgbx==0?0:rgbi);
-      if (p==8) rgby=buf0&0xffff,rgbi=(rgby==0?0:rgbi);
-      if (p==10) rgbz=buf0&0xffff,rgbi=((rgbz!=1&&rgbz!=3&&rgbz!=4)?0:rgbi);
+      else if (p==2 && c!=1) rgbi=0;
+      else if (p==4 && (buf0&0xFFFF)!=1 && (buf0&0xFFFF)!=2 && (buf0&0xFFFF)!=3) rgbi=0;
+      else if (p==6) rgbx=buf0&0xffff,rgbi=(rgbx==0?0:rgbi);
+      else if (p==8) rgby=buf0&0xffff,rgbi=(rgby==0?0:rgbi);
+      else if (p==10) rgbz=buf0&0xffff,rgbi=((rgbz!=1&&rgbz!=3&&rgbz!=4)?0:rgbi);
       if (rgbx && rgby && rgbz) IMG_DET(IMAGE8,rgbi-1,512,rgbx,rgby*rgbz);
     }
 
     // Detect .tif file header (8/24 bit color, not compressed).
     if (buf0==0x49492a00) tiff=i;
     if (tiff) {
-      if (i-tiff==4 && bswap(buf0)+tiff<n) {
+      if (i-tiff==4 && bswap(buf0)!=8 && bswap(buf0)+tiff<n) {
         long savedpos=ftell(in);
         fseek(in, start+tiff+bswap(buf0)-3, SEEK_SET);
 
         // read directory
         int dirsize=getc(in);
-        int tifx=0,tify=0,tifz=0,tifc=0,tifofs=0,b[12];
+        int tifx=0,tify=0,tifz=0,tifzb=0,tifc=0,tifofs=0,b[12];
         if (getc(in)>0) tiff=0; else
           for (int i=0; i<dirsize; i++) {
             for (int j=0; j<12; j++) b[j]=getc(in);
@@ -3610,25 +3613,46 @@ Filetype detect(FILE* in, int n, Filetype type, int &imgw) {
             int tagval=b[8]+(b[9]<<8)+(b[10]<<16)+(b[11]<<24);
             if (tagfmt==3||tagfmt==4) {
               if (tag==256) tifx=tagval;
-              if (tag==257) tify=tagval;
-              if (tag==259) tifc=tagval; // 1 = no compression
-              if (tag==273) tifofs=tagval;
-              if (tag==277) tifz=tagval;
+              else if (tag==257) tify=tagval;
+			  else if (tag==258) tifzb=tagval; // bits per component
+              else if (tag==259) tifc=tagval; // 1 = no compression
+              else if (tag==273) tifofs=tagval;
+              else if (tag==277) tifz=tagval; // components per pixel
             }
           }
-        if (tiff && tifx && tify && (tifz==1 || tifz==3) && (tifc==1) && tifofs && tifofs+tiff<n) {
+        if (tiff && tifx && tify && tifzb && (tifz==1 || tifz==3) && (tifc==1) && tifofs && tifofs+tiff<n) {
           fseek(in, start+tiff+tifofs-3, SEEK_SET);
           for (int j=0; j<4; j++) b[j]=getc(in);
           tifofs=b[0]+(b[1]<<8)+(b[2]<<16)+(b[3]<<24);
           if (tifofs && tifofs<65536 && tifofs+tiff<n) {
-            if (tifz==1) IMG_DET(IMAGE8,tiff-3,tifofs,tifx,tify);
-            if (tifz==3) IMG_DET(IMAGE24,tiff-3,tifofs,tifx*3,tify);
+			if (tifz==1) {
+				if (tifzb==1) IMG_DET(IMAGE1,tiff-3,tifofs,((tifx-1)>>3)+1,tify);
+				else if (tifzb==8) IMG_DET(IMAGE8,tiff-3,tifofs,tifx,tify);
+			}
+			else if (tifz==3 && tifzb==8) IMG_DET(IMAGE24,tiff-3,tifofs,tifx*3,tify);
           }
         }
         tiff=0;
         fseek(in, savedpos, SEEK_SET);
       }
     }
+
+	// Detect .tga image
+	if (buf0==0x00000200) tga=i;
+	if (tga) {
+		const int p=i-tga;
+		if (p==4) tga=(bswap(buf0)&0xFF)==0?tga:0;
+		else if (p==5) tga=(bswap(buf0)&0xFFFF)==0?tga:0;
+		else if (p==8) tga=(bswap(buf0)&0xFFFF)==0?tga:0;
+		else if (p==10) tga=(bswap(buf0)&0xFFFF)==0?tga:0;
+		else if (p==12) tgax=bswap(buf0)&0xFFFF;
+		else if (p==14) tgay=bswap(buf0)&0xFFFF;
+		else if (p==16) tgaz=bswap(buf0)&0xFF;
+		if (tgax && tgay && tgaz) {
+			if (tgaz==24) IMG_DET(IMAGE24,tga-3,18,tgax*3,tgay);
+		}
+		if (p>20) tga=0;
+	}
 
     // Detect EXE if the low order byte (little-endian) XX is more
     // recently seen (and within 4K) if a relative to absolute address
