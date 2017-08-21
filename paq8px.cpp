@@ -1821,38 +1821,6 @@ int matchModel(Mixer& m) {
   return result;
 }
 
-//////////////////////////// picModel //////////////////////////
-
-// Model a 1728 by 2376 2-color CCITT bitmap image, left to right scan,
-// MSB first (216 bytes per row, 513216 bytes total).  Insert predictions
-// into m.
-
-void picModel(Mixer& m) {
-  static U32 r0, r1, r2, r3;  // last 4 rows, bit 8 is over current pixel
-  static Array<U8> t(0x10200);  // model: cxt -> state
-  const int N=3;  // number of contexts
-  static int cxt[N];  // contexts
-  static StateMap sm[N];
-
-  // update the model
-  int i;
-  for ( i=0; i<N; ++i)
-    t[cxt[i]]=nex(t[cxt[i]],y);
-
-  // update the contexts (pixels surrounding the predicted one)
-  r0+=r0+y;
-  r1+=r1+((buf(215)>>(7-bpos))&1);
-  r2+=r2+((buf(431)>>(7-bpos))&1);
-  r3+=r3+((buf(647)>>(7-bpos))&1);
-  cxt[0]=r0&0x7|r1>>4&0x38|r2>>3&0xc0;
-  cxt[1]=0x100+(r0&1|r1>>4&0x3e|r2>>2&0x40|r3>>1&0x80);
-  cxt[2]=0x200+(r0&0x3f^r1&0x3ffe^r2<<2&0x7f00^r3<<5&0xf800);
-
-  // predict
-  for ( i=0; i<N; ++i)
-    m.add(stretch(sm[i].p(t[cxt[i]])));
-}
-
 //////////////////////////// wordModel /////////////////////////
 
 // Model English text (words and columns/end of line)
@@ -2432,6 +2400,147 @@ int rgbModel8(Mixer& m) {
 	  m.set(buf(w)+buf(1)>>4, 32);
 	  m.set(c0, 256);
 	  return w;
+}
+
+
+//////////////////////////// model1bit /////////////////////////////////
+
+// Model for 1 bit image data
+
+void model1bit(Mixer& m, int brow) {
+  static U32 r0, r1, r2, r3;  // last 4 rows, bit 8 is over current pixel
+  static Array<U8> t(0x10200);  // model: cxt -> state
+  const int N=4+1+1+1+1+1;  // number of contexts
+  static int cxt[N];  // contexts
+  static StateMap sm[N];
+
+  // update the model 
+  int i;
+  for ( i=0; i<N; ++i)
+    t[cxt[i]]=nex(t[cxt[i]],y);
+
+  // update the contexts (pixels surrounding the predicted one)
+  r0+=r0+y;
+  r1+=r1+((buf(brow-1)>>(7-bpos))&1);
+  r2+=r2+((buf(brow+brow-1)>>(7-bpos))&1);
+  r3+=r3+((buf(brow+brow+brow-1)>>(7-bpos))&1);
+  cxt[0]=r0&0x7|r1>>4&0x38|r2>>3&0xc0;
+  cxt[1]=0x100+(r0&1|r1>>4&0x3e|r2>>2&0x40|r3>>1&0x80);
+  cxt[2]=0x200+(r0&0x3f^r1&0x3ffe^r2<<2&0x7f00^r3<<5&0xf800);
+  cxt[3]=0x400+(r0&0x3e^r1&0x0C0C^r2&0xc800);  //?
+  cxt[4]=0x800+(r1&0x30^r3&0x0c0c|r0&3);       //?
+  cxt[5]=0x1000+(!r0&0x444|r1&0xC0C|r2&0xAE3|r3&0x51C);
+  cxt[6]=0x2000+(r0&1|r1>>4&0x1d|r2>>1&0x60|r3&0xC0);
+  cxt[7]=0x4000+(r0>>4&0x2AC|r1&0xA4|r2&0x349|!r3&0x14D);
+  // predict
+  for ( i=0; i<N; ++i)
+    m.add(stretch(sm[i].p(t[cxt[i]])));
+    return;
+}
+
+//////////////////////////// bmpModel1 /////////////////////////////////
+
+// Model a 1-bit color uncompressed .bmp images. 
+
+void bmpModel1(Mixer& m) {
+	static int h = 0;		// height of image in bytes (pixels)
+	static int w = 0;		// width of image in bytes (pixels)
+	static int eoi = 0;     // end of image
+	static int ibmp=0,brow=0;
+	 if (bpos==0) {
+        //  1-bit .bmp images                data offset      windows bmp    compression   bpp
+		if (buf(54)=='B' && buf(53)=='M' && (i4(44)==0x3e) && i4(40)==40 && i4(24)==0 && buf(26)==1){
+            w=i4(36);  // image width 
+			h=i4(32);   // image height
+			ibmp=pos+i4(44)-62;
+        }
+        if (i4(40)==40 && i4(24)==0 && buf(26)==1){
+            w=i4(36);  // image width 
+			h=i4(32);   // image height
+			ibmp=pos+2;
+        }
+        if (ibmp==pos) {
+			brow=((((w-1)>>5)+1)*4);
+			eoi=pos+((((w-1)>>5)+1)*4*h);
+			printf("BMP(1-bit) %dx%d ",w,h);
+			ibmp=0;
+		}
+	 }
+	if (pos>eoi) return;
+	model1bit(m,brow);
+    return;
+}
+//////////////////////////// pbmModel /////////////////////////////////
+
+// Model a 1-bit color uncompressed .pbm images. 
+
+void pbmModel(Mixer& m) {
+	static int h = 0;		// height of image in bytes (pixels)
+	static int w = 0,w1=0;		// width of image in bytes (pixels)
+	static int eoi = 0;     // end of image
+	static int pbm  = 0;    // offset of pgm header
+	static int pbm_hdr[2];  // 0 - Width, 1 - Height
+	static int pbm_ptr;		// which record in header should be parsed next
+	int isws;				// is white space
+	char v_buf[32];			
+	int  v_ptr;
+	if (!bpos && (pos>eoi))
+	{
+		if(buf(3)=='P' && buf(2)=='4' && ISWHITESPACE(1)) // Detect PBM file
+		{
+			pbm = pos;
+			pbm_ptr = 0;
+			return;// w = 0; // PBM header just detected, not enough info to get header yet
+		}else 
+			if(pbm && pbm_ptr!=2) 		// PBM detected, let's parse header records
+			{ 
+				for (int i = pbm; i<pos-1 && pbm_ptr<2; i++)
+				{
+					// Skip white spaces
+					while ((isws = ISWHITESPACE(pos-i)) && i<pos-1) i++; 
+					if(isws) break; // buffer end is reached
+
+					// Skip comments
+					if(buf(pos-i)=='#')
+					{ 
+						do {
+							i++;
+						}while(!ISCRLF(pos-i) && i<pos-1);
+					}else
+					{ 
+						// Get header record as a string into v_buf
+						v_ptr = 0;
+						do {
+							v_buf[v_ptr++] = buf(pos-i);
+							i++;
+						}while(!(isws = ISWHITESPACE(pos-i)) && i<pos-1 && v_ptr<32);
+
+						if(isws)
+						{
+							pbm_hdr[pbm_ptr++] = atoi(v_buf);
+							pbm = i; // move pointer 
+						}
+					}
+				}
+
+				// Header is finished, next byte is first pixel
+				if(pbm_ptr==2)
+				{ 
+					if(pbm_hdr[0]>0 && pbm_hdr[1]>0)
+					{
+						w = pbm_hdr[0];
+						h = pbm_hdr[1];
+						printf("PBM %dx%d",w,h);
+						w = (w+7)/8;
+						w1=w;
+						eoi = pos+w*h;
+					}
+				}
+			}
+	}
+	if (pos>eoi) return;
+    model1bit(m,w1);
+	return;
 }
 
 //////////////////////////// jpegModel /////////////////////////
@@ -3350,8 +3459,8 @@ void nestModel(Mixer& m)
 
 //////////////////////////// contextModel //////////////////////
 
-typedef enum {DEFAULT, JPEG, BMPFILE4, BMPFILE8, BMPFILE24, TIFFFILE,
-              PGMFILE, RGBFILE, EXE, TEXT} Filetype;
+typedef enum {DEFAULT, JPEG, BMPFILE1, BMPFILE4, BMPFILE8, BMPFILE24, TIFFFILE,
+              PGMFILE, PPMFILE, PBMFILE, RGBFILE, EXE, TEXT} Filetype;
 
 // This combines all the context models with a Mixer.
 
@@ -3408,9 +3517,11 @@ int contextModel2() {
   if (filetype==BMPFILE8){ 
      if (bmpModel8(m)>0) return m.p(); // Image width (bytes) if BMP8 detected, or 0 
   }
-if (filetype==RGBFILE){ 
+  if (filetype==RGBFILE){ 
      if (rgbModel8(m)>0) return m.p(); // Image width (bytes) if RGB8 detected, or 0 
   }
+  if (filetype==BMPFILE1) bmpModel1(m);
+  if (filetype==PBMFILE) pbmModel(m);
   if (iswav>0) {
     recordModel(m);  
     int bits=iswav&0xff;
@@ -3444,10 +3555,9 @@ if (filetype==RGBFILE){
   rcm9.mix(m);
   rcm10.mix(m);
 
-  if (level>=4) {
+  if (level>=4 && filetype!=BMPFILE1 && filetype!=PBMFILE) {
     sparseModel(m,ismatch,order);
     distanceModel(m);
-    picModel(m);
     recordModel(m);
     wordModel(m);
     indirectModel(m);
@@ -3690,9 +3800,9 @@ Filetype detect(FILE* in, int n, Filetype type) {
   int e8e9pos=0;    // offset of first CALL or JMP instruction
   int e8e9last=0;   // offset of most recent CALL or JMP
   // For BMP detection
-  int bmp=0,bmp0=0,bsize=0,imgbpp=0,bmpx=0,bmpy=0,bmpimgoff=0,imgcomp=-1;
-  // For PGM detection
-  int pgm=0,psize=0,pgmcomment=0,pgmw=0,pgmh=0,pgmsize=0,pgm_ptr=0,pgmc=0;
+  int bmp=0,bsize=0,imgbpp=0,bmpx=0,bmpy=0,bmpimgoff=0,imgcomp=-1;
+  // For PGM, PPM, PBM detection
+  int pgm=0,psize=0,pgmcomment=0,pgmw=0,pgmh=0,pgmsize=0,pgm_ptr=0,pgmc=0,pgm6=0,pbm=0;
   char pgm_buf[32];
   // For JPEG detection
   int soi=0, sof=0, sos=0, app=0;  // position where found
@@ -3726,88 +3836,93 @@ Filetype detect(FILE* in, int n, Filetype type) {
         && (buf0&0xff)!=0 && (buf0&0xf8)!=0xd0)
       return DEFAULT;
 
-	// Detect .bmp image
-    
-    if ((buf0&0xFFFF)==16973) bmp=i;                //possible 'BM'
-    if (bmp){
-		if ((i-bmp)==4) bsize=bswap(buf0);          //image size
-		if ((i-bmp)==12) bmpimgoff=bswap(buf0);
-        if ((i-bmp)==16 && buf0!=0x28000000) bmp=imgbpp=bsize=0,imgcomp=-1; //if windows bmp
-		if ((i-bmp)==20){
-			bmpx=bswap(buf0);                       //image x size
-			if (bmpx==0) bmp=imgbpp=bsize=0,imgcomp=-1; // Test big size?
-		}
-		if ((i-bmp)==24){
-			bmpy=bswap(buf0);                       //image y size
-			if (bmpy==0) bmp=imgbpp=bsize=0,imgcomp=-1;
-		}	
-		if ((i-bmp)==27) imgbpp=c;                  //image bpp
-		if ((i-bmp)==31){
-                         imgcomp=buf0;              //image compression 0=none, 1=RLE-8, 2=RLE-4		
-                         if (imgcomp!=0) bmp=imgbpp=bsize=0,imgcomp=-1;}
-		if ((type==BMPFILE4 || type==BMPFILE8 || type==BMPFILE24 ) && (imgbpp==4 || imgbpp==8 || imgbpp==24) && imgcomp==0){
-            int tbsize=0;
-            if (imgbpp==4)
-                if (bsize !=(tbsize=((bmpx*bmpy>>1)+bmpimgoff))) bsize=tbsize;
-            if (imgbpp==8)
-                if (bsize !=(tbsize=(bmpx*bmpy+bmpimgoff))) bsize=tbsize;
-            if (imgbpp==24)
-                if (bsize !=(tbsize=(bmpx*bmpy*3+bmpimgoff))) bsize=tbsize;
-			return fseek(in, start+bsize, SEEK_SET),DEFAULT;
-		}
-		if (imgbpp==4 && imgcomp==0){
-			return 	fseek(in, start+bmp-1, SEEK_SET),BMPFILE4;
-		}
-		if (imgbpp==8 && imgcomp==0){
-			return 	fseek(in, start+bmp-1, SEEK_SET),BMPFILE8;
-		}
-		if (imgbpp==24 && imgcomp==0){
-			return 	fseek(in, start+bmp-1, SEEK_SET),BMPFILE24;
-		}
+    // Detect .bmp image
+    if ((buf0&0xFFFF)==16973) imgbpp=bsize=0,imgcomp=-1,bmp=i;  //possible 'BM'
+    if (bmp) {
+      const int p=i-bmp;
+      if (p==4) bsize=bswap(buf0); //image size
+      if (p==12) bmpimgoff=bswap(buf0);
+      if (p==16 && buf0!=0x28000000) bmp=0; //windows bmp?
+      if (p==20) bmpx=bswap(buf0),bmp=(bmpx==0?0:bmp); //width
+      if (p==24) bmpy=bswap(buf0),bmp=(bmpy==0?0:bmp); //height
+      if (p==27) imgbpp=c,bmp=((imgbpp!=1 && imgbpp!=4 && imgbpp!=8 && imgbpp!=24)?0:bmp);
+      if (p==31) imgcomp=buf0,bmp=(imgcomp!=0?0:bmp);
+      if ((type==BMPFILE1 || type==BMPFILE4 || type==BMPFILE8 || type==BMPFILE24) && imgbpp!=0 && imgcomp==0) {
+        if (imgbpp==1) bsize=(((((bmpx-1)>>5)+1)*4*bmpy)+bmpimgoff);
+        if (imgbpp==4) bsize=(((((bmpx-1)>>3)+1)*4*bmpy)+bmpimgoff);
+        if (imgbpp==8) bsize=((bmpx+3&-4)*bmpy+bmpimgoff);
+        if (imgbpp==24) bsize=((bmpx*3+3&-4)*bmpy*3+bmpimgoff);
+        return fseek(in, start+bsize, SEEK_SET),DEFAULT;
+      }
+      if (imgbpp==1 && imgcomp==0) return fseek(in, start+bmp-1, SEEK_SET),BMPFILE1;
+      if (imgbpp==4 && imgcomp==0) return fseek(in, start+bmp-1, SEEK_SET),BMPFILE4;
+      if (imgbpp==8 && imgcomp==0) return fseek(in, start+bmp-1, SEEK_SET),BMPFILE8;
+      if (imgbpp==24 && imgcomp==0) return fseek(in, start+bmp-1, SEEK_SET),BMPFILE24;
     }
-    // Detect .pgm image
-    if ((buf0&0xFFFFFF)==0x50350A) pgm=i;           //possible 'P5 '
+
+
+
+    // Detect .pgm  .ppm  .pbm image
+    
+    if ((buf0&0xFFFFFF)==0x50350A ) pgm=i;           //possible 'P5 ' 8 bit
+    if ((buf0&0xFFFFFF)==0x50360A) pgm=i,pgm6=1;     //possible 'P6 ' 24 bit
+    if ((buf0&0xFFFFFF)==0x50340A) pgm=i,pbm=1;      //possible 'P4 ' 1 bit
     if (pgm){
 		if ((i-pgm)==1 && c==0x23) pgmcomment=1; //pgm comment
 		//not tested without comment
 		if (!pgmcomment && c==0x20 && !pgmw && pgm_ptr) {
 			pgm_buf[pgm_ptr++]=0;
 			pgmw=atoi(pgm_buf);
-			if (pgmw==0) pgm=pgm_ptr=pgmw=pgmh=pgmc=pgmcomment=0;			
+			if (pgmw==0) pgm=pgm_ptr=pgmw=pgmh=pgmc=pgmcomment=pgm6=pbm=0;			
 			pgm_ptr=0;
 		}
 		if (!pgmcomment && c==0x0a && !pgmh && pgm_ptr){
 			pgm_buf[pgm_ptr++]=0;
 			pgmh=atoi(pgm_buf);
-			if (pgmh==0) pgm=pgm_ptr=pgmw=pgmh=pgmc=pgmcomment=0;
+			if (pgmh==0) pgm=pgm_ptr=pgmw=pgmh=pgmc=pgmcomment=pgm6=pbm=0;
 			pgm_ptr=0;
 		}
-		if (!pgmcomment && c==0x0a && !pgmc && pgm_ptr){
+		if (!pgmcomment && c==0x0a && !pgmc && pgm_ptr && !pbm){
 			pgm_buf[pgm_ptr++]=0;
 			pgmc=atoi(pgm_buf);
+			if (pgmc>255 || pgmc<=0) pgm=pgm_ptr=pgmw=pgmh=pgmc=pgmcomment=pgm6=pbm=0; // do not allow larger sample size
 			pgm_ptr=0;
 		}
 		if (!pgmcomment) pgm_buf[pgm_ptr++]=c;
-		if (pgm_ptr>=32) pgm=pgm_ptr=pgmw=pgmh=pgmc=pgmcomment=0;
+		if (pgm_ptr>=32) pgm=pgm_ptr=pgmw=pgmh=pgmc=pgmcomment=pgm6=pbm=0;
 		if (pgmcomment && c==0x0a) pgmcomment=0;
-		if (type==PGMFILE && pgmw && pgmh && pgmc){
-			pgmsize=pgmw *pgmh +pgm+i-1;
-			return fseek(in, start+pgmsize, SEEK_SET),DEFAULT;
+		if ((type==PGMFILE || type==PPMFILE)&& pgmw && pgmh && pgmc){
+			if (pgm6==1){
+                         pgmsize=(pgmw *pgmh*3) +pgm+i-1;
+                         return fseek(in, start+pgmsize, SEEK_SET),DEFAULT;
+                         }
+            pgmsize=pgmw *pgmh +pgm+i-1;
+			return fseek(in, start+pgmsize, SEEK_SET),DEFAULT;			
 		}
-     	if (pgmw && pgmh && pgmc){
+     	if (pgmw && pgmh && pgmc && !pbm){
+                 if (pgm6==1) return fseek(in, start+pgm-2, SEEK_SET),PPMFILE;
 		     return fseek(in, start+pgm-2, SEEK_SET),PGMFILE;
         }
+        if (type==PBMFILE && pgmw && pgmh && !pgmc && pbm){
+                         pgmsize=((pgmw+7)/8) *pgmh +pgm+i-1;
+                         return fseek(in, start+pgmsize, SEEK_SET),DEFAULT;			
+		}
+     	if (pgmw && pgmh && !pgmc && pbm){
+		     return fseek(in, start+pgm-2, SEEK_SET),PBMFILE;
+        }
     }
+
     // Detect .rgb image
     if ((buf0&0xFFFF)==0x01DA) rgbi=i,rgb_x,rgb_size=0;
     if (rgbi) {
-      if ((i-rgbi)==1 && c!=0) rgbi=0;
-      if ((i-rgbi)==2 && c!=1 && c!=2) rgbi=0;
-      if ((i-rgbi)==4 && (buf0&0xFFFF)!=1 && (buf0&0xFFFF)!=2 && (buf0&0xFFFF)!=3) rgbi=0;
-      if ((i-rgbi)==6 && (buf0&0xFFFF)>0) rgb_x=buf0&0xFFFF; else rgbi=0;
-      if ((i-rgbi)==8 && (buf0&0xFFFF)>0) rgb_size=(buf0&0xFFFF)*rgb_x+512; else rgbi=0;
-      if ((i-rgbi)==10 && (buf0&0xFFFF)!=1) rgbi=0;
-      if (rgb_size != 0  && (i-rgbi)>0 && ((i-rgbi)>rgb_size)) {
+      const int p=i-rgbi;
+      if (p==1 && c!=0) rgbi=0;
+      if (p==2 && c!=1 && c!=2) rgbi=0;
+      if (p==4 && (buf0&0xFFFF)!=1 && (buf0&0xFFFF)!=2 && (buf0&0xFFFF)!=3) rgbi=0;
+      if (p==6) if ((buf0&0xFFFF)>0) rgb_x=buf0&0xFFFF; else rgbi=0;
+      if (p==8) if ((buf0&0xFFFF)>0) rgb_size=(buf0&0xFFFF)*rgb_x+512; else rgbi=0;
+      if (p==10 && (buf0&0xFFFF)!=1) rgbi=0;
+      if (rgb_size!=0 && p>0 && (p>rgb_size)) {
         if (type==RGBFILE) return fseek(in, start+rgb_size, SEEK_SET),DEFAULT;
         else return fseek(in, start+rgbi-1, SEEK_SET),RGBFILE;
       }
