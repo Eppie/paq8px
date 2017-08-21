@@ -3773,15 +3773,16 @@ void encode_exe(FILE* in, FILE* out, int len, int begin) {
     int size=min(len-offset, BLOCK);
     int bytesRead=fread(&blk[0], 1, size, in);
     if (bytesRead!=size) quit("encode_exe read error");
-    for (int i=bytesRead-1; i>=4; --i) {
-      if ((blk[i-4]==0xe8||blk[i-4]==0xe9) && (blk[i]==0||blk[i]==0xff)) {
+    for (int i=bytesRead-1; i>=5; --i) {
+      if ((blk[i-4]==0xe8 || blk[i-4]==0xe9 || (blk[i-5]==0x0f && (blk[i-4]&0xf0)==0x80))
+         && (blk[i]==0||blk[i]==0xff)) {
         int a=(blk[i-3]|blk[i-2]<<8|blk[i-1]<<16|blk[i]<<24)+offset+begin+i+1;
         a<<=7;
         a>>=7;
         blk[i]=a>>24;
-        blk[i-1]=a;
-        blk[i-2]=a>>8;
-        blk[i-3]=a>>16;
+        blk[i-1]=a^64;
+        blk[i-2]=(a>>8)^64;
+        blk[i-3]=(a>>16)^64;
       }
     }
     fwrite(&blk[0], 1, bytesRead, out);
@@ -3793,7 +3794,7 @@ int decode_exe(Encoder& en, int size) {
   static int offset=0, q=0;  // decode state: file offset, queue size
   static int size2=0;  // where to stop coding
   static int begin=0;  // offset in file
-  static U8 c[5];  // queue of last 5 bytes, c[0] at front
+  static U8 c[6];  // queue of last 6 bytes, c[0] at front
 
   // Read size from first 4 bytes, MSB first
   while (offset==size2 && q==0) {
@@ -3806,17 +3807,17 @@ int decode_exe(Encoder& en, int size) {
   }
 
   // Fill queue
-  while (offset<size2 && q<5) {
-    memmove(c+1, c, 4);
+  while (offset<size2 && q<6) {
+    memmove(c+1, c, 5);
     c[0]=en.decompress();
     ++q;
     ++offset;
   }
 
   // E8E9 transform: E8/E9 xx xx xx 00/FF -> subtract location from x
-  if (q==5 && (c[4]==0xe8||c[4]==0xe9) && (c[0]==0||c[0]==0xff)
-      && ((offset-1^offset-5)&-BLOCK)==0) { // not crossing block boundary
-    int a=(c[1]|c[2]<<8|c[3]<<16|c[0]<<24)-offset-begin;
+  if (q==6 && (c[0]==0||c[0]==0xff) && (c[4]==0xe8 || c[4]==0xe9 || (c[5]==0x0f && (c[4]&0xf0)==0x80))
+     && ((offset-1^offset-6)&-BLOCK)==0) { // not crossing block boundary
+    int a=((c[1]^64)|(c[2]^64)<<8|(c[3]^64)<<16|c[0]<<24)-offset-begin;
     a<<=7;
     a>>=7;
     c[3]=a;
@@ -3826,7 +3827,7 @@ int decode_exe(Encoder& en, int size) {
   }
 
   // return oldest byte in queue
-  assert(q>0 && q<=5);
+  assert(q>0 && q<=6);
   return c[--q];
 }
 
