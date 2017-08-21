@@ -2262,6 +2262,7 @@ void im1bitModel(Mixer& m, int w) {
 // context for the Huffman coded symbols.
 
 // Print a JPEG segment at buf[p...] for debugging
+/*
 void dump(const char* msg, int p) {
   printf("%s:", msg);
   int len=buf[p+2]*256+buf[p+3];
@@ -2269,6 +2270,7 @@ void dump(const char* msg, int p) {
     printf(" %02X", buf[p+i]);
   printf("\n");
 }
+*/
 
 // Detect invalid JPEG data.  The proper response is to silently
 // fall back to a non-JPEG model.
@@ -2522,7 +2524,6 @@ int jpegModel(Mixer& m) {
       for (j=0; j<64; ++j) zpos[zzu[j]+8*zzv[j]]=j;
       width=buf[sof+7]*256+buf[sof+8];  // in pixels
       int height=buf[sof+5]*256+buf[sof+6];
-      printf("JPEG %dx%d ", width, height);
       width=(width-1)/(hmax*8)+1;  // in MCU
       jassert(width>0);
       mcusize*=64;  // coefficients per MCU
@@ -2790,18 +2791,18 @@ inline int s2(int i) {
 }
 
 inline int X1(int i) {
-  if (wmode==18) return s2(i<<2);
-  else if (wmode==17) return s2(i<<1);
-  else if (wmode==10) return buf(i<<1)-128;
-  else if (wmode==9) return buf(i)-128;
+  if (wmode==3) return s2(i<<2);
+  else if (wmode==2) return s2(i<<1);
+  else if (wmode==1) return buf(i<<1)-128;
+  else if (wmode==0) return buf(i)-128;
   else return (buf(i)^128)-128;
 }
 
 inline int X2(int i) {
-  if (wmode==18) return s2((i<<2)-2);
-  else if (wmode==17) return s2(i+S<<1);
-  else if (wmode==10) return buf((i<<1)-1)-128;
-  else if (wmode==9) return buf(i+S)-128;
+  if (wmode==3) return s2((i<<2)-2);
+  else if (wmode==2) return s2(i+S<<1);
+  else if (wmode==1) return buf((i<<1)-1)-128;
+  else if (wmode==0) return buf(i+S)-128;
   else return (buf(i+S)^128)-128;
 }
 
@@ -2817,9 +2818,8 @@ void wavModel(Mixer& m, int info) {
   static int bits, channels, w;
 
   if (blpos==0) {
-    bits=info>16?16:8;
-    channels=info&3;
-    if (info==8) channels=1;
+    bits=((info%4)/2)*8+8;
+    channels=info%2+1;
     w=channels*(bits>>3);
     wmode=info;
     if (channels==1) S=48,D=0; else S=36,D=12;
@@ -2878,7 +2878,7 @@ void wavModel(Mixer& m, int info) {
       pr[0][chn]=int(floor(sum));
       counter[chn]++;
     }
-    const int x1=buf(1)^(wmode==8?128:0)-128, x2=buf(2)^(wmode==8?128:0)-128, y1=pr[0][chn], y2=pr[1][chn], y3=pr[2][chn];
+    const int x1=buf(1)^(wmode==4?128:0)-128, x2=buf(2)^(wmode==4?128:0)-128, y1=pr[0][chn], y2=pr[1][chn], y3=pr[2][chn];
     const int t=(msb!=0), z1=s2(w+t), z2=s2(w*2+t), z3=s2(w*3+t), z4=s2(w*4+t), z5=s2(w*5+t);
     i=ch<<4;
     if (!msb) {
@@ -3157,8 +3157,6 @@ int contextModel2() {
   static Filetype ft2,filetype=DEFAULT;
   static int size=0;  // bytes remaining in block
   static int info=0;  // image width or audio type
-  static const char* typenames[8]={"", "JPEG ", "HDR ", "1BIT ", "8BIT ",
-    "24BIT ", "WAVE ", "EXE "};
 
   // Parse filetype and size
   if (bpos==0) {
@@ -3176,7 +3174,7 @@ int contextModel2() {
       info=buf(4)<<24|buf(3)<<16|buf(2)<<8|buf(1);
       blpos=0;
     }
-    if (!blpos) filetype=ft2, printf("%s(%d bytes) ",typenames[filetype],size);
+    if (!blpos) filetype=ft2;
   }
 
   m.update();
@@ -3514,7 +3512,7 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
       else if (p==40+wavm) {
         int wavd=bswap(buf0);
         if ((wavch==1 || wavch==2) && (wavbps==8 || wavbps==16) && wavd>0 && wavsize>=wavd+36
-           && wavd%((wavbps/8)*wavch)==0) AUD_DET(AUDIO,wavi-3,44+wavm,wavd,wavch+wavbps);
+           && wavd%((wavbps/8)*wavch)==0) AUD_DET(AUDIO,wavi-3,44+wavm,wavd,wavch+wavbps/4-3);
         wavi=0;
       }
     }
@@ -3538,7 +3536,7 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
         int x=getc(in);
         if (x+1>numpat) numpat=x+1;
       }
-      if (numpat<65) AUD_DET(AUDIO,i-1083,1084+numpat*256*chn,len,8);
+      if (numpat<65) AUD_DET(AUDIO,i-1083,1084+numpat*256*chn,len,4);
       fseek(in, savedpos, SEEK_SET);
     }
 
@@ -3566,7 +3564,7 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
             if (ofs*16+len>sam_end) sam_end=ofs*16+len;
           }
         }
-        if (ok && sam_start<(1<<16)) AUD_DET(AUDIO,s3mi-31,sam_start,sam_end-sam_start,9);
+        if (ok && sam_start<(1<<16)) AUD_DET(AUDIO,s3mi-31,sam_start,sam_end-sam_start,0);
         s3mi=0;
         fseek(in, savedpos, SEEK_SET);
       }
@@ -3815,9 +3813,13 @@ int decode_exe(Encoder& en) {
 // Split n bytes into blocks by type.  For each block, output
 // <type> <size> and call encode_X to convert to type X.
 void encode(FILE* in, FILE* out, int n) {
+  static const char* typenames[8]={"default", "jpeg", "hdr",
+    "1-bit-image", "8-bit-image", "24-bit-image", "audio", "exe"};
+  static const char* audiotypes[4]={"8-bit mono", "8-bit stereo", "16-bit mono",
+    "16-bit stereo"};
   Filetype type=DEFAULT;
   int info;  // image width or audio type
-  int n1=n;
+  int n1=n, blnum=0;
   long begin=ftell(in), begin1=begin;
   while (n>0) {
     Filetype nextType=detect(in, n, type, info);
@@ -3829,17 +3831,29 @@ void encode(FILE* in, FILE* out, int n) {
     }
     int len=int(end-begin);
     if (len>0) {
-      fprintf(out, "%c%c%c%c%c", type, len>>24, len>>16, len>>8, len);
+      printf("%3d | %12s | %d bytes [from %d to %d]",blnum++,typenames[type],len,begin,end-1);
+      fprintf(out, "%c%c%c%c%c",type, len>>24, len>>16, len>>8, len);
       switch(type) {
         case IMAGE1:
         case IMAGE8:
         case IMAGE24:
-        case AUDIO:
+          printf(" (width: %d)\n", info);
           fprintf(out, "%c%c%c%c", info>>24, info>>16, info>>8, info);
           encode_default(in, out, len);
           break;
-        case EXE:  encode_exe(in, out, len, begin); break;
-        default:   encode_default(in, out, len); break;
+        case AUDIO:
+          printf(" (%s)\n", audiotypes[info%4]);
+          fprintf(out, "%c%c%c%c", info>>24, info>>16, info>>8, info);
+          encode_default(in, out, len);
+          break;
+        case EXE:  
+          printf("\n");
+          encode_exe(in, out, len, begin);
+          break;
+        default:
+          printf("\n");
+          encode_default(in, out, len);
+          break;
       }
     }
     n-=len;
@@ -3871,9 +3885,9 @@ int decode(Encoder& en) {
 //////////////////// Compress, Decompress ////////////////////////////
 
 // Print progress: n is the number of bytes compressed or decompressed
-void printStatus(int n) {
+void printStatus(int n, int size) {
   if (n>0 && !(n&0x0fff))
-    printf("%12d\b\b\b\b\b\b\b\b\b\b\b\b", n), fflush(stdout);
+    printf("%6.2f%%\b\b\b\b\b\b\b", float(100)*n/(size+1)), fflush(stdout);
 }
 
 // Compress a file
@@ -3883,13 +3897,14 @@ void compress(const char* filename, int size, Encoder& en) {
   FILE *f=fopen(filename, "rb");
   if (!f) perror(filename), quit();
   long start=en.size();
-  printf("%s %ld -> ", filename, size);
 
   // Transform and test
   FILE* tmp=tmpfile();
   if (!tmp) perror("tmpfile"), quit();
   long savepos=ftell(f);
+  printf("Block segmentation:\n");
   encode(f, tmp, size);
+  printf("Compressing... ");
 
   // Test transform
   rewind(tmp);
@@ -3910,7 +3925,7 @@ void compress(const char* filename, int size, Encoder& en) {
     en.compress(size);
     fseek(f, savepos, SEEK_SET);
     for (int j=0; j<size; ++j) {
-      printStatus(j);
+      printStatus(j, size);
       en.compress(getc(f));
     }
   }
@@ -3921,14 +3936,14 @@ void compress(const char* filename, int size, Encoder& en) {
     int c;
     j=0;
     while ((c=getc(tmp))!=EOF) {
-      printStatus(j++);
+      printStatus(j++, size);
       en.compress(c);
     }
   }
   fclose(tmp);  // deletes
 
   if (f) fclose(f);
-  printf("%-12ld\n", en.size()-start);
+  printf("\b\b\b\b\b\b\b\b\b\b\b\b\b\b\bCompressed from %ld to %ld bytes.\n",size,en.size()-start);
 }
 
 // Try to make a directory, return true if successful
@@ -3955,7 +3970,7 @@ void decompress(const char* filename, long filesize, Encoder& en) {
     printf("Comparing %s %ld -> ", filename, filesize);
     bool found=false;  // mismatch?
     for (int i=0; i<filesize; ++i) {
-      printStatus(i);
+      printStatus(i, filesize);
       int c1=found?EOF:getc(f);
       int c2=decode(en);
       if (c1!=c2 && !found) {
@@ -3991,7 +4006,7 @@ void decompress(const char* filename, long filesize, Encoder& en) {
     if (f) {
       printf("Extracting %s %ld -> ", filename, filesize);
       for (int i=0; i<filesize; ++i) {
-        printStatus(i);
+        printStatus(i, filesize);
         putc(decode(en), f);
       }
       fclose(f);
@@ -4003,7 +4018,7 @@ void decompress(const char* filename, long filesize, Encoder& en) {
       perror(filename);
       printf("Skipping %s %ld -> ", filename, filesize);
       for (int i=0; i<filesize; ++i) {
-        printStatus(i);
+        printStatus(i, filesize);
         decode(en);
       }
       printf("not extracted\n");
@@ -4314,10 +4329,12 @@ int main(int argc, char** argv) {
     for (int i=0; i<files; ++i) total_size+=fsize[i];
     Encoder en(mode, archive);
     if (mode==COMPRESS) {
-      for (int i=0; i<files; ++i)
+      for (int i=0; i<files; ++i) {
+        printf("\n%d/%d  Filename: %s (%ld bytes)\n", i+1, files, fname[i], fsize[i]);
         compress(fname[i], fsize[i], en);
+      }
       en.flush();
-      printf("%ld -> %ld\n", total_size, en.size());
+      printf("\nTotal %ld bytes compressed to %ld bytes.\n", total_size, en.size());
     }
 
     // Decompress files to dir2: paq8px -d dir1/archive.paq8px dir2
