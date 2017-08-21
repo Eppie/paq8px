@@ -2797,7 +2797,8 @@ inline int X(int i, int j) {
   else if (wmode==10) {
     if (i<=S) return buf(i+j<<1); else return buf((i+j-S<<1)-1);
   }
-  else return buf(i+j);
+  else if (wmode==9) return buf(i+j);
+  else return (buf(i+j)+128)&255;
 }
 
 void wavModel(Mixer& m, int info) {
@@ -2808,19 +2809,21 @@ void wavModel(Mixer& m, int info) {
   const int SC=0x20000;
   static SmallStationaryContextMap scm1(SC), scm2(SC), scm3(SC), scm4(SC), scm5(SC), scm6(SC), scm7(SC);
   static ContextMap cm(MEM*4, 10);
+  static int bits, channels, w;
 
-  int bits=info>16?16:8;
-  int channels=info&3;
-  int w=channels*(bits>>3);
   if (blpos==0) {
     for (int j=0; j<channels; j++) {
       for (k=0; k<=S+D; k++) for (l=k; l<=S+D; l++) F[k][l][j]=0;
       F[1][0][j]=1;
       n[j]=counter[j]=0;
     }
+    bits=info>16?16:8;
+    channels=info&3;
+    if (info==8) channels=1;
+    w=channels*(bits>>3);
+    wmode=info;
+    if (channels==1) S=48,D=0; else S=36,D=12;
   }
-  wmode=info;
-  if (channels==1) S=48,D=0; else S=36,D=12;
   // Select previous samples and predicted sample as context
   if (!bpos) {
     const int ch=blpos%w;
@@ -2867,7 +2870,8 @@ void wavModel(Mixer& m, int info) {
       pr[0][chn]=int(floor(sum));
       counter[chn]++;
     }
-    const int x1=buf(1), x2=buf(2), y1=pr[0][chn], y2=pr[1][chn], y3=pr[2][chn];
+    const int x3=(wmode==8?128:0);
+    const int x1=(buf(1)+x3)&255, x2=(buf(2)+x3)&255, y1=pr[0][chn], y2=pr[1][chn], y3=pr[2][chn];
     const int t=(msb!=0), z1=s2(w+t), z2=s2(w*2+t), z3=s2(w*3+t), z4=s2(w*4+t), z5=s2(w*5+t);
     i=ch<<4;
     if (!msb) {
@@ -3473,13 +3477,14 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
 
     if (!soi && i>=3 && (buf0&0xfffffff0)==0xffd8ffe0) soi=i, app=i+2, sos=sof=0;
     if (soi) {
-        if (app==i && (buf0>>24)==0xff && (buf0&0xffff0000)!=0xffc00000) app=i+(buf0&0xffff)+2;
-        if (app<i && (buf1&0xff)==0xff && (buf0&0xff0000ff)==0xc0000008) sof=i;
-        if (sof && sof>soi && i-sof<0x1000 && (buf0&0xffff)==0xffda) {
-          sos=i;
-          if (type!=JPEG) return fseek(in, start+soi-3, SEEK_SET), JPEG;
-        }
-        if (i-soi>0x40000 && !sos) soi=0;
+      if (app==i && (buf0>>24)==0xff &&
+         ((buf0>>16)&0xff)>0xc0 && ((buf0>>16)&0xff)<0xff) app=i+(buf0&0xffff)+2;
+      if (app<i && (buf1&0xff)==0xff && (buf0&0xff0000ff)==0xc0000008) sof=i;
+      if (sof && sof>soi && i-sof<0x1000 && (buf0&0xffff)==0xffda) {
+        sos=i;
+        if (type!=JPEG) return fseek(in, start+soi-3, SEEK_SET), JPEG;
+      }
+      if (i-soi>0x40000 && !sos) soi=0;
     }
     if (type==JPEG && sos && i>sos && (buf0&0xff00)==0xff00
         && (buf0&0xff)!=0 && (buf0&0xf8)!=0xd0) return DEFAULT;
@@ -3504,6 +3509,32 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
         }
         wavi=0;
       }
+    }
+
+    // Detect .mod file header 
+    if ((buf0==0x4d2e4b2e || buf0==0x3643484e || buf0==0x3843484e) // M.K. 6CHN 8CHN
+       && (buf1&0xc0c0c0c0)==0 && i>=1083) {
+      long savedpos=ftell(in);
+      const int chn=((buf0>>24)==0x36?6:((buf0>>24)==0x38?8:4));
+      int len=0; // total length of samples
+      int numpat=1; // number of patterns
+      int ok=1;
+      for (int j=0; j<31; j++) {
+        fseek(in, start+i-1083+42+j*30, SEEK_SET);
+        const int i1=getc(in);
+        const int i2=getc(in);
+        len+=i1*512+i2*2;
+      }
+      fseek(in, start+i-131, SEEK_SET);
+      for (int j=0; j<128; j++) {
+        int x=getc(in);
+        if (x+1>numpat) numpat=x+1;
+      }
+      if (numpat<64) {
+        dett=AUDIO,deth=1084+numpat*256*chn,detd=len,info=8;
+        return fseek(in, start+i-1083, SEEK_SET),HDR;
+      }
+      fseek(in, savedpos, SEEK_SET);
     }
 
     // Detect .bmp image
@@ -3571,43 +3602,43 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
 
     // Detect .tiff file header (2/8/24 bit color, not compressed).
     if (buf1==0x49492a00 && bswap(buf0)+i<n) {
-        long savedpos=ftell(in);
-        fseek(in, start+i+bswap(buf0)-7, SEEK_SET);
+      long savedpos=ftell(in);
+      fseek(in, start+i+bswap(buf0)-7, SEEK_SET);
 
-        // read directory
-        int dirsize=getc(in);
-        int tifx=0,tify=0,tifz=0,tifzb=0,tifc=0,tifofs=0,tifofval=0,b[12];
-        if (getc(in)==0) {
-          for (int i=0; i<dirsize; i++) {
-            for (int j=0; j<12; j++) b[j]=getc(in);
-            if (b[11]==EOF) break;
-            int tag=b[0]+(b[1]<<8);
-            int tagfmt=b[2]+(b[3]<<8);
-            int taglen=b[4]+(b[5]<<8)+(b[6]<<16)+(b[7]<<24);
-            int tagval=b[8]+(b[9]<<8)+(b[10]<<16)+(b[11]<<24);
-            if (tagfmt==3||tagfmt==4) {
-              if (tag==256) tifx=tagval;
-              else if (tag==257) tify=tagval;
-              else if (tag==258) tifzb=taglen==1?tagval:8; // bits per component
-              else if (tag==259) tifc=tagval; // 1 = no compression
-              else if (tag==273 && tagfmt==4) tifofs=tagval,tifofval=(taglen<=1);
-              else if (tag==277) tifz=tagval; // components per pixel
-            }
+      // read directory
+      int dirsize=getc(in);
+      int tifx=0,tify=0,tifz=0,tifzb=0,tifc=0,tifofs=0,tifofval=0,b[12];
+      if (getc(in)==0) {
+        for (int i=0; i<dirsize; i++) {
+          for (int j=0; j<12; j++) b[j]=getc(in);
+          if (b[11]==EOF) break;
+          int tag=b[0]+(b[1]<<8);
+          int tagfmt=b[2]+(b[3]<<8);
+          int taglen=b[4]+(b[5]<<8)+(b[6]<<16)+(b[7]<<24);
+          int tagval=b[8]+(b[9]<<8)+(b[10]<<16)+(b[11]<<24);
+          if (tagfmt==3||tagfmt==4) {
+            if (tag==256) tifx=tagval;
+            else if (tag==257) tify=tagval;
+            else if (tag==258) tifzb=taglen==1?tagval:8; // bits per component
+            else if (tag==259) tifc=tagval; // 1 = no compression
+            else if (tag==273 && tagfmt==4) tifofs=tagval,tifofval=(taglen<=1);
+            else if (tag==277) tifz=tagval; // components per pixel
           }
         }
-        if (tifx && tify && tifzb && (tifz==1 || tifz==3) && (tifc==1) && (tifofs && tifofs+i<n)) {
-          if (!tifofval) {
-            fseek(in, start+i+tifofs-7, SEEK_SET);
-            for (int j=0; j<4; j++) b[j]=getc(in);
-            tifofs=b[0]+(b[1]<<8)+(b[2]<<16)+(b[3]<<24);
-          }
-          if (tifofs && tifofs<65536 && tifofs+i<n) {
-            if (tifz==1 && tifzb==1) IMG_DET(IMAGE1,i-7,tifofs,((tifx-1)>>3)+1,tify);
-            else if (tifz==1 && tifzb==8) IMG_DET(IMAGE8,i-7,tifofs,tifx,tify);
-            else if (tifz==3 && tifzb==8) IMG_DET(IMAGE24,i-7,tifofs,tifx*3,tify);
-          }
+      }
+      if (tifx && tify && tifzb && (tifz==1 || tifz==3) && (tifc==1) && (tifofs && tifofs+i<n)) {
+        if (!tifofval) {
+          fseek(in, start+i+tifofs-7, SEEK_SET);
+          for (int j=0; j<4; j++) b[j]=getc(in);
+          tifofs=b[0]+(b[1]<<8)+(b[2]<<16)+(b[3]<<24);
         }
-        fseek(in, savedpos, SEEK_SET);
+        if (tifofs && tifofs<(1<<18) && tifofs+i<n) {
+          if (tifz==1 && tifzb==1) IMG_DET(IMAGE1,i-7,tifofs,((tifx-1)>>3)+1,tify);
+          else if (tifz==1 && tifzb==8) IMG_DET(IMAGE8,i-7,tifofs,tifx,tify);
+          else if (tifz==3 && tifzb==8) IMG_DET(IMAGE24,i-7,tifofs,tifx*3,tify);
+        }
+      }
+      fseek(in, savedpos, SEEK_SET);
     }
 
     // Detect .tga image (8-bit 256 colors or 24-bit uncompressed)
