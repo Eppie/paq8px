@@ -3445,6 +3445,10 @@ void Encoder::flush() {
 deth=(header_len),detd=(width)*(height),info=(width),\
 fseek(in, start+(start_pos), SEEK_SET),HDR
 
+#define AUD_DET(type,start_pos,header_len,data_len,wmode) return dett=(type),\
+deth=(header_len),detd=(data_len),info=(wmode),\
+fseek(in, start+(start_pos), SEEK_SET),HDR
+
 // Detect EXE or JPEG data
 Filetype detect(FILE* in, int n, Filetype type, int &info) {
   U32 buf1=0, buf0=0;  // last 8 bytes
@@ -3462,6 +3466,7 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
   int bmp=0,bsize,imgbpp,bmpx,bmpy,bmpof;  // For BMP detection
   int rgbi=0,rgbx,rgby;  // For RGB detection
   int tga=0,tgax,tgay,tgaz,tgat;  // For TGA detection
+  int s3mi=0,s3mno,s3mni;  // For S3M detection
   int pgm=0,pgmcomment=0,pgmw=0,pgmh=0,pgm_ptr=0,pgmc=0,pgmn=0;  // For PBM, PGM, PPM detection
   char pgm_buf[32];
 
@@ -3509,11 +3514,7 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
       else if (p==40+wavm) {
         int wavd=bswap(buf0);
         if ((wavch==1 || wavch==2) && (wavbps==8 || wavbps==16) && wavd>0 && wavsize>=wavd+36
-            && wavd%((wavbps/8)*wavch)==0) {
-          dett=AUDIO,deth=44+wavm,detd=wavd;
-          info=wavch+wavbps;
-          return fseek(in, start+wavi-3, SEEK_SET),HDR;
-        }
+           && wavd%((wavbps/8)*wavch)==0) AUD_DET(AUDIO,wavi-3,44+wavm,wavd,wavch+wavbps);
         wavi=0;
       }
     }
@@ -3537,11 +3538,38 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
         int x=getc(in);
         if (x+1>numpat) numpat=x+1;
       }
-      if (numpat<65) {
-        dett=AUDIO,deth=1084+numpat*256*chn,detd=len,info=8;
-        return fseek(in, start+i-1083, SEEK_SET),HDR;
-      }
+      if (numpat<65) AUD_DET(AUDIO,i-1083,1084+numpat*256*chn,len,8);
       fseek(in, savedpos, SEEK_SET);
+    }
+
+    // Detect .s3m file header 
+    if (buf0==0x1a100000) s3mi=i,s3mno=s3mni=0;
+    if (s3mi) {
+      const int p=i-s3mi;
+      if (p==4) s3mno=bswap(buf0)&0xffff,s3mni=(bswap(buf0)>>16);
+      else if (p==16 && (((buf1>>16)&0xff)!=0x13 || buf0!=0x5343524d)) s3mi=0;
+      else if (p==16) {
+        long savedpos=ftell(in);
+        int b[31],sam_start=(1<<16),sam_end,ok=1;
+        for (int j=0;j<s3mni;j++) {
+          fseek(in, start+s3mi-31+0x60+s3mno+j*2, SEEK_SET);
+          int i1=getc(in);
+          i1+=getc(in)*256;
+          fseek(in, start+s3mi-31+i1*16, SEEK_SET);
+          i1=getc(in);
+          if (i1==1) { // type: sample
+            for (int k=0;k<31;k++) b[k]=fgetc(in);
+            int len=b[15]+(b[16]<<8);
+            int ofs=b[13]+(b[14]<<8);
+            if (b[30]>1) ok=0;
+            if (ofs*16<sam_start) sam_start=ofs*16;
+            if (ofs*16+len>sam_end) sam_end=ofs*16+len;
+          }
+        }
+        if (ok && sam_start<(1<<16)) AUD_DET(AUDIO,s3mi-31,sam_start,sam_end-sam_start,9);
+        s3mi=0;
+        fseek(in, savedpos, SEEK_SET);
+      }
     }
 
     // Detect .bmp image
