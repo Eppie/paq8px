@@ -1,4 +1,4 @@
-/* paq8px file compressor/archiver.  Release by Jan Ondrus, Jun. 2, 2009
+/* paq8px file compressor/archiver.  Release by Jan Ondrus, Jun. 13, 2009
 
     Copyright (C) 2008 Matt Mahoney, Serge Osnach, Alexander Ratushnyak,
     Bill Pettis, Przemyslaw Skibinski, Matthew Fite, wowtiger, Andrew Paterson,
@@ -2847,12 +2847,14 @@ void wavModel(Mixer& m, int info) {
         for (i=1; i<=S+D; i++) {
            sum=F[i][i][chn];
            for (k=1; k<i; k++) sum-=L[i][k]*L[i][k];
+           sum=float(sum);
            sum=1/sum;
            if (sum>0) {
              L[i][i]=sqrt(sum);
              for (j=(i+1); j<=S+D; j++) {
                sum=F[i][j][chn];
                for (k=1; k<i; k++) sum-=L[j][k]*L[i][k];
+               sum=float(sum);
                L[j][i]=sum*L[i][i];
              }
            } else break;
