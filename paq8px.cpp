@@ -3512,10 +3512,10 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
     }
 
     // Detect .mod file header 
-    if ((buf0==0x4d2e4b2e || buf0==0x3643484e || buf0==0x3843484e) // M.K. 6CHN 8CHN
-       && (buf1&0xc0c0c0c0)==0 && i>=1083) {
+    if ((buf0==0x4d2e4b2e || buf0==0x3643484e || buf0==0x3843484e  // M.K. 6CHN 8CHN
+       || buf0==0x464c5434 || buf0==0x464c5438) && (buf1&0xc0c0c0c0)==0 && i>=1083) {
       long savedpos=ftell(in);
-      const int chn=((buf0>>24)==0x36?6:((buf0>>24)==0x38?8:4));
+      const int chn=((buf0>>24)==0x36?6:(((buf0>>24)==0x38 || buf0&0xff==0x38)?8:4));
       int len=0; // total length of samples
       int numpat=1; // number of patterns
       int ok=1;
@@ -3530,7 +3530,7 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
         int x=getc(in);
         if (x+1>numpat) numpat=x+1;
       }
-      if (numpat<64) {
+      if (numpat<65) {
         dett=AUDIO,deth=1084+numpat*256*chn,detd=len,info=8;
         return fseek(in, start+i-1083, SEEK_SET),HDR;
       }
