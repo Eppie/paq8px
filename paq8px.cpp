@@ -2103,6 +2103,7 @@ inline int sqrbuf(int i) {
 int im24bitModel(Mixer& m) {
   static U32 tiff=0;   // offset of tif header
   static int w=0, h=0; // size of image in bytes (pixels)
+  static int ibmp=0;
   static int eoi=0;    // end of image
   static int ppm=0;    // offset of ppm header
   static int ppm_hdr[3]; // 0 - Width, 1 - Height, 2 - Max value
@@ -2142,7 +2143,7 @@ int im24bitModel(Mixer& m) {
       if (ppm_ptr==3) {
         w=ppm_hdr[0];
         h=ppm_hdr[1];
-        if (ppm_hdr[2]<=255 && w<0x30000 && h<0x10000 && w>0 && h>0) {
+        if (ppm_hdr[2]<=255 && w>0 && h>0) {
           printf("PPM %dx%d ",w,h);
           w*=3;
           eoi=pos+w*h;
@@ -2154,18 +2155,17 @@ int im24bitModel(Mixer& m) {
 
   // Detect .bmp file header (24 bit color, not compressed)
   if (!bpos && pos>eoi) {
-    int bo=0; // offset of BMP data
-    if (buf(54)=='B' && buf(53)=='M' && i4(44)==54 && i4(40)==40 && i4(24)==0) bo=54;
-    if (buf(66)=='B' && buf(65)=='M' && i4(56)==66 && i4(52)==40 && i4(36)==0) bo=66;
-    if (bo) {
-      w=(i4(bo-18)*3)+3&-4;  // image width
-      int height=i4(bo-22);
-	  if (height<0) height*=(-1);
-      eoi=pos;
-      if (w<0x30000 && height<0x10000) {
-        eoi=pos+w*height;  // image size in bytes
-        printf("BMP %dx%d ", w/3, height);
-      }
+    //  24-bit .bmp images
+    if (buf(54)=='B' && buf(53)=='M' && i4(44)<1079 && i4(40)==40 && i4(24)==0 && buf(26)==24) {
+      w=i4(36);  // image width
+      h=abs(i4(32));  // image height
+      ibmp=pos+i4(44)-54;
+    }
+    if (ibmp==pos && w>0 && h>0) {
+      ibmp=0;
+      printf("BMP(24-bit) %dx%d ",w,h);
+      w=(w*3)+3&-4;
+      eoi=pos+w*h;
     }
   }
 
@@ -2200,7 +2200,7 @@ int im24bitModel(Mixer& m) {
         tiff=w=0;
     }
   }
-  if (pos>eoi) return w=0;
+  if (pos>eoi) return 0;
 
   // Select nearby pixels as context
   if (!bpos) {
@@ -2365,7 +2365,7 @@ int pgmModel(Mixer& m) {
       if (pgm_ptr==3) {
         w=pgm_hdr[0];
         h=pgm_hdr[1];
-        if (pgm_hdr[2]==255 && w<0x30000 && h<0x10000 && w>0 && h>0) {
+        if (pgm_hdr[2]==255 && w>0 && h>0) {
           printf("PGM %dx%d ",w,h);
           eoi=pos+w*h;
         }
@@ -2381,24 +2381,21 @@ int pgmModel(Mixer& m) {
 int bmpModel8(Mixer& m) {
   static int w=0, h=0; // size of image in bytes (pixels)
   static int eoi=0;    // end of image
-  static int col=0;
-  static int ibmp=0,w1=0;
+  static int ibmp=0;
   if (bpos==0 && pos>eoi) {
     //  8-bit .bmp images
-    if ((i4(44)<1079) && i4(40)==40 && i4(24)==0 && (buf(26)==8)) {
-      w1=i4(36);  // image width
-      h=i4(32);   // image height
-	  if (h<0) h*=(-1);
+    if (buf(54)=='B' && buf(53)=='M' && i4(44)<1079 && i4(40)==40 && i4(24)==0 && buf(26)==8) {
+      w=i4(36);  // image width
+      h=abs(i4(32));  // image height
       ibmp=pos+i4(44)-54;
     }
-    if (ibmp==pos) {
-      w=w1;
+    if (ibmp==pos && w>0 && h>0) {
       ibmp=0;
       printf("BMP(8-bit) %dx%d ",w,h);
       eoi=pos+w*h;
     }
   }
-  if (pos>eoi) return w=0;
+  if (pos>eoi) return 0;
   model8bit(m,w);
   return w;
 }
@@ -2406,7 +2403,6 @@ int bmpModel8(Mixer& m) {
 int rgbModel8(Mixer& m) {
   static int w=0, h=0; // size of image in bytes (pixels)
   static int eoi=0;    // end of image
-  static int col=0;
   // for .rgb gray images
   if (bpos==0) {
     if (buf(507)==1 && buf(506)==218 && buf(505)==0 && i2(496)==1) {
@@ -2464,29 +2460,23 @@ void model1bit(Mixer& m, int brow) {
 void bmpModel1(Mixer& m) {
   static int w=0, h=0; // size of image in bytes (pixels)
   static int eoi=0;    // end of image
-  static int ibmp=0,brow=0;
+  static int ibmp=0;
   if (bpos==0 && pos>eoi) {
     //  1-bit .bmp images
-    if (buf(54)=='B' && buf(53)=='M' && (i4(44)==0x3e) && i4(40)==40 && i4(24)==0 && buf(26)==1) {
-      w=i4(36);  // image width 
-      h=i4(32);  // image height
-      ibmp=pos+i4(44)-62;
+    if (buf(54)=='B' && buf(53)=='M' && i4(44)<1079 && i4(40)==40 && i4(24)==0 && buf(26)==1) {
+      w=i4(36);  // image width
+      h=abs(i4(32));  // image height
+      ibmp=pos+i4(44)-54;
     }
-    if (i4(40)==40 && i4(24)==0 && buf(26)==1) {
-      w=i4(36);  // image width 
-      h=i4(32);  // image height
-      ibmp=pos+2;
-    }
-    if (ibmp==pos) {
-	  if (h<0) h*=(-1);
-      brow=((((w-1)>>5)+1)*4);
-      eoi=pos+((((w-1)>>5)+1)*4*h);
-      printf("BMP(1-bit) %dx%d ",w,h);
+    if (ibmp==pos && w>0 && h>0) {
       ibmp=0;
+      printf("BMP(1-bit) %dx%d ",w,h);
+      w=(((w-1)>>5)+1)*4;
+      eoi=pos+(w*h);
     }
   }
   if (pos>eoi) return;
-  model1bit(m,brow);
+  model1bit(m,w);
   return;
 }
 //////////////////////////// pbmModel /////////////////////////////////
@@ -2528,7 +2518,7 @@ void pbmModel(Mixer& m) {
       if (pbm_ptr==2) {
         w=pbm_hdr[0];
         h=pbm_hdr[1];
-        if (w<0x30000 && h<0x10000 && w>0 && h>0) {
+        if (w>0 && h>0) {
           printf("PBM %dx%d ",w,h);
           w=(w+7)/8;
           eoi=pos+w*h;
@@ -3814,8 +3804,8 @@ Filetype detect(FILE* in, int n, Filetype type) {
       if (p==4) bsize=bswap(buf0); //image size
       if (p==12) bmpimgoff=bswap(buf0);
       if (p==16 && buf0!=0x28000000) bmp=0; //windows bmp?
-      if (p==20) bmpx=bswap(buf0),bmp=(bmpx==0?0:bmp); //width
-	  if (p==24) bmpy=bswap(buf0),(bmpy<0?bmpy*=(-1):bmpy),bmp=(bmpy==0?0:bmp); //height
+      if (p==20) bmpx=bswap(buf0),bmp=((bmpx==0||bmpx>0x30000)?0:bmp); //width
+      if (p==24) bmpy=abs(bswap(buf0)),bmp=((bmpy==0||bmpy>0x10000)?0:bmp); //height
       if (p==27) imgbpp=c,bmp=((imgbpp!=1 && imgbpp!=4 && imgbpp!=8 && imgbpp!=24)?0:bmp);
       if (p==31) imgcomp=buf0,bmp=(imgcomp!=0?0:bmp);
       if ((type==BMPFILE1 || type==BMPFILE4 || type==BMPFILE8 || type==BMPFILE24) && imgbpp!=0 && imgcomp==0) {
