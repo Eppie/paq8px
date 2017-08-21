@@ -1856,21 +1856,29 @@ void picModel(Mixer& m) {
 //////////////////////////// wordModel /////////////////////////
 
 // Model English text (words and columns/end of line)
-
+static U32 frstchar=0, spafdo=0, spaces=0, spacecount=0, words=0, wordcount=0,wordlen=0,wordlen1=0;
 void wordModel(Mixer& m) {
   static U32 word0=0, word1=0, word2=0, word3=0, word4=0, word5=0;  // hashes
+  static U32 number0=0, number1=0;  // hashes
   static U32 text0=0;  // hash stream of letters
-  static ContextMap cm(MEM*16, 20);
+  static ContextMap cm(MEM*16, 20+3+3+6+1+1+1+1+1+1+2+1+1+1+1);
   static int nl1=-3, nl=-2;  // previous, current newline position
-
   // Update word hashes
   if (bpos==0) {
     int c=c4&255;
+    if (spaces&0x80000000) --spacecount;
+	if (words&0x80000000) --wordcount;
+	spaces=spaces*2;
+	words=words*2;
+
     if (c>='A' && c<='Z')
       c+='a'-'A';
-    if (c>='a' && c<='z' || c>=128) {
+    if (c>='a' && c<='z'  || c>=128) {
+                ++words, ++wordcount;
       word0=word0*263*32+c;
       text0=text0*997*16+c;
+      wordlen++;
+      wordlen=min(wordlen,45);
     }
     else if (word0) {
       word5=word4*23;
@@ -1878,12 +1886,50 @@ void wordModel(Mixer& m) {
       word3=word2*17;
       word2=word1*13;
       word1=word0*11;
-      word0=0;
+      wordlen1=wordlen;
+      word0=wordlen=0;
     }
-    if (c==10) nl1=nl, nl=pos-1;
+    if (c>='0' && c<='9') {
+      number0=number0*263*32+c;
+    }
+    else if (number0) {
+      number1=number0*11;
+      number0=0;
+    }
+    if( c=='.' || c=='!' || c=='?' || c==',' || c==';' || c==':') spafdo=0; else { ++spafdo; spafdo=min(63,spafdo); }
+ if (c==32 || c==10) { ++spaces, ++spacecount; if (c==10) nl1=nl, nl=pos-1;}
     int col=min(255, pos-nl), above=buf[nl1+col]; // text column context
-    U32 h=word0*271+buf(1);
+    if (col<=2) {
+		if (col==2) frstchar=min(c,96); else frstchar=0;
+	}
+	cm.set(spafdo|col<<8 );
+    cm.set(spafdo|spaces<<8 ); //
+    cm.set(frstchar<<11|c);
+    cm.set(col<<8|frstchar);
+ 
+ cm.set(spaces<<8|words&255);
+
+   
+    cm.set(number0+word2*31);
+    cm.set(number0+word1*31);
+    cm.set(number0*31+c);
+    cm.set(number0+number1*31);
+    cm.set(word0+number1*31);
     
+    cm.set(frstchar<<7);
+    cm.set(wordlen<<16|c);
+    cm.set(wordlen1<<8|col);
+    cm.set(c*64+spacecount/2);
+    U32 h=wordcount*64+spacecount;
+    cm.set((c<<13)+h);
+    cm.set(h);
+    cm.set(h+spafdo*8);
+
+
+U32 d=c4&0xffff;
+cm.set(d<<9|frstchar);
+
+h=word0*271+buf(1);
     cm.set(h);
     cm.set(word0);
     cm.set(h+word1);
@@ -1906,6 +1952,7 @@ void wordModel(Mixer& m) {
     cm.set(col<<16|buf(1)<<8|above);
     cm.set(buf(1)<<8|above);
     cm.set(col<<8|buf(1));
+    cm.set(col*(c==32));
     cm.set(col);
   }
   cm.mix(m);
@@ -2082,7 +2129,7 @@ int bmpModel(Mixer& m) {
   // Detect .bmp file header (24 bit color, not compressed)
   if (!bpos && buf(54)=='B' && buf(53)=='M'
       && i4(44)==54 && i4(40)==40 && i4(24)==0) {
-    w=(i4(36)+3&-4)*3;  // image width
+    w=(i4(36)*3)+3&-4;  // image width
     const int height=i4(32);
     eoi=pos;
     if (w<0x30000 && height<0x10000) {
@@ -3234,6 +3281,73 @@ void dmcModel(Mixer& m) {
   m.add(stretch(pr2));
 }
 
+void nestModel(Mixer& m)
+{
+  static int ic=0, bc=0, pc=0,vc=0, qc=0, lvc=0, wc=0;
+  static ContextMap cm(MEM, 14-4);
+  if (bpos==0) {
+    int c=c4&255, matched=1, vv;
+    const int lc = (c >= 'A' && c <= 'Z'?c+'a'-'A':c);
+    if (lc == 'a' || lc == 'e' || lc == 'i' || lc == 'o' || lc == 'u') vv = 1; else
+    if (lc >= 'a' && lc <= 'z') vv = 2; else
+    if (lc == ' ' || lc == '.' || lc == ',' || lc == '\n') vv = 3; else
+    if (lc >= '0' && lc <= '9') vv = 4; else
+    if (lc == 'y') vv = 5; else
+    if (lc == '\'') vv = 6; else vv=(c&32)?7:0;
+    vc = (vc << 3) | vv;
+    if (vv != lvc) {
+      wc = (wc << 3) | vv;
+      lvc = vv;
+    }
+    switch(c) {
+      case ' ': qc = 0; break;
+      case '(': ic += 513; break;
+      case ')': ic -= 513; break;
+      case '[': ic += 17; break;
+      case ']': ic -= 17; break;
+      case '<': ic += 23; qc += 34; break;
+      case '>': ic -= 23; qc /= 5; break;
+      case ':': pc = 20; break;
+      case '{': ic += 22; break;
+      case '}': ic -= 22; break;
+      case '|': pc += 223; break;
+      case '"': pc += 0x40; break;
+      case '\'': pc += 0x42; break;
+      case '\n': pc = qc = 0; break;
+      case '.': pc = 0; break;
+      case '!': pc = 0; break;
+      case '?': pc = 0; break;
+      case '#': pc += 0x08; break;
+      case '%': pc += 0x76; break;
+      case '$': pc += 0x45; break;
+      case '*': pc += 0x35; break;
+      case '-': pc += 0x3; break;
+      case '@': pc += 0x72; break;
+      case '&': qc += 0x12; break;
+      case ';': qc /= 3; break;
+      case '\\': pc += 0x29; break;
+      case '/': pc += 0x11;
+                if (buf.size() > 1 && buf(1) == '<') qc += 74;
+                break;
+      case '=': pc += 87; break;
+      default: matched = 0;
+    }
+    if (matched) bc = 0; else bc += 1;
+    if (bc > 300) bc = ic = pc = qc = 0;
+    cm.set(ic&0xffff);
+    cm.set((3*pc)&0xffff);
+    cm.set((1*vc)&0xffff);
+    cm.set(((13*vc+ic))&0xffff);
+    cm.set(((17*pc+7*ic))&0xffff);
+    cm.set(((vc/3+pc))&0xffff);
+    cm.set(((7*wc+qc))&0xffff);
+    cm.set((3*vc+77*pc+373*ic+qc)&0xffff);
+    cm.set((31*vc+27*pc+281*qc)&0xffff);
+    cm.set((13*vc+271*ic+qc+bc)&0xffff);
+  }
+  cm.mix(m);
+}
+
 //////////////////////////// contextModel //////////////////////
 
 typedef enum {DEFAULT, JPEG, BMPFILE4, BMPFILE8, BMPFILE24, TIFFFILE,
@@ -3334,10 +3448,11 @@ if (filetype==RGBFILE){
     sparseModel(m,ismatch,order);
     distanceModel(m);
     picModel(m);
-    recordModel(m);  
+    recordModel(m);
     wordModel(m);
     indirectModel(m);
     dmcModel(m);
+    nestModel(m);
     if (filetype==EXE) exeModel(m);
   }
 
