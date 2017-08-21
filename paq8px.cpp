@@ -1,4 +1,4 @@
-/* paq8px file compressor/archiver.  Release by Jan Ondrus, Jun. 17, 2009
+/* paq8px file compressor/archiver.  Release by Jan Ondrus, Jul. 25, 2009
 
     Copyright (C) 2008 Matt Mahoney, Serge Osnach, Alexander Ratushnyak,
     Bill Pettis, Przemyslaw Skibinski, Matthew Fite, wowtiger, Andrew Paterson,
@@ -3949,6 +3949,37 @@ int decode_cd(FILE *in, int size, FILE *out, FMode mode, int &diffFound) {
 }
 
 
+// 24-bit image data transform:
+// simple color transform (b, g, r) -> (g, g-r, g-b)
+
+void encode_bmp(FILE* in, FILE* out, int len) {
+  int r,g,b;
+  for (int i=0; i<len/3; i++) {
+    b=fgetc(in), g=fgetc(in), r=fgetc(in);
+    fputc(g, out);
+    fputc(g-r, out);
+    fputc(g-b, out);
+  }
+}
+
+int decode_bmp(Encoder& en, int size, FILE *out, FMode mode, int &diffFound) {
+  int r,g,b;
+  for (int i=0; i<size/3; i++) {
+    b=en.decompress(), g=en.decompress(), r=en.decompress();
+    if (mode==FDECOMPRESS) {
+      fputc(b-r, out);
+      fputc(b, out);
+      fputc(b-g, out);
+    }
+    else if (mode==FCOMPARE) {
+      if (((b-r)&255)!=getc(out) && !diffFound) diffFound=i+1;
+      if (b!=getc(out) && !diffFound) diffFound=i+2;
+      if (((b-g)&255)!=getc(out) && !diffFound) diffFound=i+3;
+    }
+  }
+  return size;
+}
+
 // EXE transform: <encoded-size> <begin> <block>...
 // Encoded-size is 4 bytes, MSB first.
 // begin is the offset of the start of the input file, 4 bytes, MSB first.
@@ -4077,10 +4108,11 @@ void compressRecursive(FILE *in, long n, Encoder &en, char *blstr, int it=0, int
       else if (type==IMAGE1 || type==IMAGE8 || type==IMAGE24) printf(" (width: %d)", info);
       else if (type==CD) printf(" (m%d/f%d)", info==1?1:2, info!=3?1:2);
       printf("\n");
-      if (type==EXE || type==CD) {
+      if (type==EXE || type==CD || type==IMAGE24) {
         tmp=tmpfile();  // temporary encoded file
         if (!tmp) perror("tmpfile"), quit();
-        if (type==EXE) encode_exe(in, tmp, len, begin);
+        if (type==IMAGE24) encode_bmp(in, tmp, len);
+        else if (type==EXE) encode_exe(in, tmp, len, begin);
         else if (type==CD) encode_cd(in, tmp, len, info);
         const long tmpsize=ftell(tmp);
 
@@ -4088,7 +4120,8 @@ void compressRecursive(FILE *in, long n, Encoder &en, char *blstr, int it=0, int
         en.setFile(tmp);
         fseek(in, begin, SEEK_SET);
         int diffFound=0;
-        if (type==EXE) decode_exe(en, tmpsize, in, FCOMPARE, diffFound);
+        if (type==IMAGE24) decode_bmp(en, tmpsize, in, FCOMPARE, diffFound);
+        else if (type==EXE) decode_exe(en, tmpsize, in, FCOMPARE, diffFound);
         else if (type==CD) decode_cd(tmp, tmpsize, in, FCOMPARE, diffFound);
 
         // Test fails, compress without transform
@@ -4104,11 +4137,13 @@ void compressRecursive(FILE *in, long n, Encoder &en, char *blstr, int it=0, int
             compressRecursive(tmp, tmpsize, en, blstr, it+1, s1, s2);
           } else if (type==EXE) {
             direct_encode_block(type, tmp, tmpsize, en, s1, s2);
+          } else if (type==IMAGE24) {
+            direct_encode_block(type, tmp, tmpsize, en, s1, s2, info);
           }
         }
         fclose(tmp);  // deletes
       } else {
-        const int i1=(type==IMAGE1 || type==IMAGE8 || type==IMAGE24 || type==AUDIO)?info:-1;
+        const int i1=(type==IMAGE1 || type==IMAGE8 || type==AUDIO)?info:-1;
         direct_encode_block(type, in, len, en, s1, s2, i1);
       }
       s1+=len;
@@ -4164,7 +4199,8 @@ int decompressRecursive(FILE *out, long size, Encoder& en, FMode mode, int it=0,
     len|=en.decompress();
 
     if (type==IMAGE1 || type==IMAGE8 || type==IMAGE24 || type==AUDIO) for (int i=0; i<4; ++i) en.decompress();
-    if (type==EXE) len=decode_exe(en, len, out, mode, diffFound, s1, s2);
+    if (type==IMAGE24) len=decode_bmp(en, len, out, mode, diffFound);
+    else if (type==EXE) len=decode_exe(en, len, out, mode, diffFound, s1, s2);
     else if (type==CD) {
       tmp=tmpfile();
       decompressRecursive(tmp, len, en, FDECOMPRESS, it+1, s1+i, s2-len);
