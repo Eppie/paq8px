@@ -1,4 +1,4 @@
-/* paq8px file compressor/archiver.  Release by Andreas Morphis, Aug. 22, 2008
+/* paq8px file compressor/archiver.  Release by Jan Ondrus, Apr. 25, 2009
 
     Copyright (C) 2008 Matt Mahoney, Serge Osnach, Alexander Ratushnyak,
     Bill Pettis, Przemyslaw Skibinski, Matthew Fite, wowtiger, Andrew Paterson,
@@ -594,13 +594,14 @@ Added wav Model. Slightly improved bmp model.
 
 DIFFERENCES FROM PAQ8P
 
+Added nestModel from paq8p3
+Modified wordModel from paq8p3
 Modified .pbm, .pgm, .ppm, .bmp, .rgb detection (from paq8p3)
 Modified WAV model (from paq8p_)
 Modified JPEG model (from paq8p2)
-bmpModel (24-bit) renamed to im24bitModel with .ppm compression added (from paq8p3)
+Renamed bmpModel (24-bit) to im24bitModel + .ppm compression added (from paq8p3)
 Added bmpModel1 (1-bit) and PBM models (from paq8p3)
 Removed pic model
-
 */
 
 #define PROGNAME "paq8px"  // Please change this if you change the program.
