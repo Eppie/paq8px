@@ -42,7 +42,7 @@ The compressed output file is named by adding ".paq8px" extension to
 the first named file (file1.paq8px).  Each file that exists will be
 added to the archive and its name will be stored without a path.
 The option -N specifies a compression level ranging from -0
-(fastest) to -9 (smallest).  The default is -5.  If there is
+(fastest) to -8 (smallest).  The default is -5.  If there is
 no option and only one file, then the program will pause when
 finished until you press the ENTER key (to support drag and drop).
 If file1.paq8px exists then it is overwritten.
@@ -863,7 +863,7 @@ public:
 
 /////////////////////// Global context /////////////////////////
 
-int level=DEFAULT_OPTION;  // Compression level 0 to 9
+int level=DEFAULT_OPTION;  // Compression level 0 to 8
 #define MEM (0x10000<<level)
 int y=0;  // Last bit, 0 or 1, set by encoder
 
@@ -4069,7 +4069,7 @@ void compress(const char* filename, long filesize, Encoder& en) {
   printf("%s %ld -> ", filename, filesize);
 
   // Transform and test in blocks
-  const int BLOCK=MEM*128;
+  const int BLOCK=(level>7?(1<<30):MEM*128);
   for (int i=0; filesize>0; i+=BLOCK) {
     int size=BLOCK;
     if (size>filesize) size=filesize;
@@ -4331,12 +4331,12 @@ int main(int argc, char** argv) {
     // Get option
     bool doExtract=false;  // -d option
     if (argc>1 && argv[1][0]=='-' && argv[1][1] && !argv[1][2]) {
-      if (argv[1][1]>='0' && argv[1][1]<='9')
+      if (argv[1][1]>='0' && argv[1][1]<='8')
         level=argv[1][1]-'0';
       else if (argv[1][1]=='d')
         doExtract=true;
       else
-        quit("Valid options are -0 through -9 or -d\n");
+        quit("Valid options are -0 through -8 or -d\n");
       --argc;
       ++argv;
       pause=false;
