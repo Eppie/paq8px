@@ -2792,17 +2792,17 @@ inline int s2(int i) {
 inline int X1(int i) {
   if (wmode==18) return s2(i<<2);
   else if (wmode==17) return s2(i<<1);
-  else if (wmode==10) return buf(i<<1);
-  else if (wmode==9) return buf(i);
-  else return buf(i)^128;
+  else if (wmode==10) return buf(i<<1)-128;
+  else if (wmode==9) return buf(i)-128;
+  else return (buf(i)^128)-128;
 }
 
 inline int X2(int i) {
   if (wmode==18) return s2((i<<2)-2);
   else if (wmode==17) return s2(i+S<<1);
-  else if (wmode==10) return buf((i<<1)-1);
-  else if (wmode==9) return buf(i+S);
-  else return buf(i+S)^128;
+  else if (wmode==10) return buf((i<<1)-1)-128;
+  else if (wmode==9) return buf(i+S)-128;
+  else return (buf(i+S)^128)-128;
 }
 
 void wavModel(Mixer& m, int info) {
@@ -2878,7 +2878,7 @@ void wavModel(Mixer& m, int info) {
       pr[0][chn]=int(floor(sum));
       counter[chn]++;
     }
-    const int x1=buf(1)^(wmode==8?128:0), x2=buf(2)^(wmode==8?128:0), y1=pr[0][chn], y2=pr[1][chn], y3=pr[2][chn];
+    const int x1=buf(1)^(wmode==8?128:0)-128, x2=buf(2)^(wmode==8?128:0)-128, y1=pr[0][chn], y2=pr[1][chn], y3=pr[2][chn];
     const int t=(msb!=0), z1=s2(w+t), z2=s2(w*2+t), z3=s2(w*3+t), z4=s2(w*4+t), z5=s2(w*5+t);
     i=ch<<4;
     if (!msb) {
