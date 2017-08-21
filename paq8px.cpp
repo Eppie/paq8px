@@ -2790,23 +2790,31 @@ inline int s2(int i) { return int(short(buf(i)+256*buf(i-1))); }
 inline int t2(int i) { return int(short(buf(i-1)+256*buf(i))); }
 
 inline int X1(int i) {
-  if (wmode==3) return s2(i<<2);
-  else if (wmode==2) return s2(i<<1);
-  else if (wmode==1) return buf(i<<1)-128;
-  else if (wmode==0) return buf(i)-128;
-  else if (wmode==4) return (buf(i)^128)-128;
-  else if (wmode==7) return t2(i<<2);
-  else return t2(i<<1);;
+  switch (wmode) {
+    case 0: return buf(i)-128;
+    case 1: return buf(i<<1)-128;
+    case 2: return s2(i<<1);
+    case 3: return s2(i<<2);
+    case 4: return (buf(i)^128)-128;
+    case 5: return (buf(i<<1)^128)-128;
+    case 6: return t2(i<<1);
+    case 7: return t2(i<<2);
+    default: return 0;
+  }
 }
 
 inline int X2(int i) {
-  if (wmode==3) return s2((i<<2)-2);
-  else if (wmode==2) return s2(i+S<<1);
-  else if (wmode==1) return buf((i<<1)-1)-128;
-  else if (wmode==0) return buf(i+S)-128;
-  else if (wmode==4) return (buf(i+S)^128)-128;
-  else if (wmode==7) return t2((i<<2)-2);
-  else return t2(i+S<<1);
+  switch (wmode) {
+    case 0: return buf(i+S)-128;
+    case 1: return buf((i<<1)-1)-128;
+    case 2: return s2(i+S<<1);
+    case 3: return s2((i<<2)-2);
+    case 4: return (buf(i+S)^128)-128;
+    case 5: return (buf((i<<1)-1)^128)-128;
+    case 6: return t2(i+S<<1);
+    case 7: return t2((i<<2)-2);
+    default: return 0;
+  }
 }
 
 void wavModel(Mixer& m, int info) {
@@ -2886,7 +2894,7 @@ void wavModel(Mixer& m, int info) {
     }
     const int y1=pr[0][chn], y2=pr[1][chn], y3=pr[2][chn];
     int x1=buf(1), x2=buf(2);
-    if (wmode==4) x1^=128, x2^=128;
+    if (wmode==4 || wmode==5) x1^=128, x2^=128;
     if (bits==8) x1-=128, x2-=128;
     const int t=((bits==8) || ((!msb)^(wmode<6)));
     i=ch<<4;
@@ -3470,7 +3478,7 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
 
   int soi=0, sof=0, sos=0, app=0;  // For JPEG detection - position where found
   int wavi=0,wavsize,wavch,wavbps,wavm;  // For WAVE detection
-  int aiff=0,aiffm;  // For AIFF detection
+  int aiff=0,aiffm,aiffs;  // For AIFF detection
   int s3mi=0,s3mno,s3mni;  // For S3M detection
   int bmp=0,bsize,imgbpp,bmpx,bmpy,bmpof;  // For BMP detection
   int rgbi=0,rgbx,rgby;  // For RGB detection
@@ -3528,29 +3536,15 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
     }
 
     // Detect .aiff file header
-    if (buf0==0x464f524d) aiff=i; // FORM
+    if (buf0==0x464f524d) aiff=i,aiffs=0; // FORM
     if (aiff) {
       const int p=i-aiff;
       if (p==12 && (buf1!=0x41494646 || buf0!=0x434f4d4d)) aiff=0; // AIFF COMM
       else if (p==24) {
         const int bits=buf0&0xffff, chn=buf1>>16;
-        if ((bits==8 || bits==16) && (chn==1 || chn==2)) aiffm=(bits==8?chn-1:chn+5); else aiff=0;
-      } else if (p==34) {
-				int j=0;
-				long savedpos=ftell(in);
-				char chunk[4];
-				int csize;
-				do {
-					chunk[0]=getc(in),chunk[1]=getc(in),chunk[2]=getc(in),chunk[3]=getc(in);
-					csize=getc(in),csize<<=8,csize|=getc(in),csize<<=8,csize|=getc(in),csize<<=8,csize|=getc(in);
-					if (chunk[0]=='S' && chunk[1]=='S' && chunk[2]=='N' && chunk[3]=='D') break;
-					if (fseek(in, csize, SEEK_CUR)!=0)aiff=0;
-					j+=(csize+8);
-				} while (aiff && j<512);
-				if (aiff && j<512) AUD_DET(AUDIO,aiff-3,38+j+(4*4),csize-8,aiffm);
-				fseek(in, savedpos, SEEK_SET);
-        aiff=0;
-      }
+        if ((bits==8 || bits==16) && (chn==1 || chn==2)) aiffm=chn+bits/4+1; else aiff=0;
+      } else if (p==42+aiffs && buf1!=0x53534e44) aiffs+=(buf0+8)+(buf0&1),aiff=(aiffs>0x400?0:aiff);
+      else if (p==42+aiffs) AUD_DET(AUDIO,aiff-3,54+aiffs,buf0-8,aiffm);
     }
 
     // Detect .mod file header 
