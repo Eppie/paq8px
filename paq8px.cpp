@@ -3478,22 +3478,18 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
     // Detect end by any code other than RST0-RST7 (FF D9-D7) or
     // a byte stuff (FF 00).
 
-    if (!soi && i>=3 && (buf0&0xfffffff0)==0xffd8ffe0) soi=i, app=i+2;
+    if (!soi && i>=3 && (buf0&0xfffffff0)==0xffd8ffe0) soi=i, app=i+2, sos=sof=0;
     if (soi) {
-        if (app==i && ((buf0&0xfff00000)==0xffe00000 || (buf0&0xffff0000)==0xfffe0000))
-          app=i+(buf0&0xffff)+2;    
-        if (app<i && i-soi<0x10000 && (buf1&0xff)==0xff
-            && (buf0&0xff0000ff)==0xc0000008)
-          sof=i;
-        if (sof && sof>soi && i-soi<0x10000 && i-sof<0x1000
-            && (buf0&0xffff)==0xffda) {
+        if (app==i && (buf0>>24)==0xff && (buf0&0xffff0000)!=0xffc00000) app=i+(buf0&0xffff)+2;
+        if (app<i && (buf1&0xff)==0xff && (buf0&0xff0000ff)==0xc0000008) sof=i;
+        if (sof && sof>soi && i-sof<0x1000 && (buf0&0xffff)==0xffda) {
           sos=i;
           if (type!=JPEG) return fseek(in, start+soi-3, SEEK_SET), JPEG;
         }
+        if (i-soi>0x40000 && !sos) soi=0;
     }
     if (type==JPEG && sos && i>sos && (buf0&0xff00)==0xff00
-        && (buf0&0xff)!=0 && (buf0&0xf8)!=0xd0)
-      return DEFAULT;
+        && (buf0&0xff)!=0 && (buf0&0xf8)!=0xd0) return DEFAULT;
 
     // Detect .wav file header
     if (buf0==0x52494646) wavi=i,wavm=0;
