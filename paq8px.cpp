@@ -1,4 +1,4 @@
-/* paq8px file compressor/archiver.  Release by Jan Ondrus, Nov. 5, 2009
+/* paq8px file compressor/archiver.  Release by Jan Ondrus, Jan. 18, 2010
 
     Copyright (C) 2008 Matt Mahoney, Serge Osnach, Alexander Ratushnyak,
     Bill Pettis, Przemyslaw Skibinski, Matthew Fite, wowtiger, Andrew Paterson,
@@ -4285,23 +4285,6 @@ void decompress(const char* filename, long filesize, Encoder& en) {
 
 //////////////////////////// User Interface ////////////////////////////
 
-// Read one line, return NULL at EOF or ^Z.  f may be opened ascii or binary.
-// Trailing \r\n is dropped.  Line length is unlimited.
-
-const char* getline(FILE *f=stdin) {
-  static String s;
-  int len=0, c;
-  while ((c=getc(f))!=EOF && c!=26 && c!='\n') {
-    if (len>=s.size()) s.resize(len*2+1);
-    if (c!='\r') s[len++]=c;
-  }
-  if (len>=s.size()) s.resize(len+1);
-  s[len]=0;
-  if (c==EOF || c==26)
-    return 0;
-  else
-    return s.c_str();
-}
 
 // int expand(String& archive, String& s, const char* fname, int base) {
 // Given file name fname, print its length and base name (beginning
@@ -4314,7 +4297,7 @@ const char* getline(FILE *f=stdin) {
 // whose names are appended to s and archive.
 
 // Same as expand() except fname is an ordinary file
-int putsize(String& archive, String& s, const char* fname, int base) {
+int putsize(String& archive, const char* fname, int base) {
   int result=0;
   FILE *f=fopen(fname, "rb");
   if (f) {
@@ -4325,9 +4308,7 @@ int putsize(String& archive, String& s, const char* fname, int base) {
       sprintf(blk, "%ld\t", len);
       archive+=blk;
       archive+=(fname+base);
-      archive+="\r\n";
-      s+=fname;
-      s+="\n";
+      archive+="\n";
       ++result;
     }
     fclose(f);
@@ -4337,7 +4318,7 @@ int putsize(String& archive, String& s, const char* fname, int base) {
 
 #ifdef WINDOWS
 
-int expand(String& archive, String& s, const char* fname, int base) {
+int expand(String& archive, const char* fname, int base) {
   int result=0;
   DWORD attr=GetFileAttributes(fname);
   if ((attr != 0xFFFFFFFF) && (attr & FILE_ATTRIBUTE_DIRECTORY)) {
@@ -4350,28 +4331,28 @@ int expand(String& archive, String& s, const char* fname, int base) {
         String d(fname);
         d+="/";
         d+=ffd.cFileName;
-        result+=expand(archive, s, d.c_str(), base);
+        result+=expand(archive, d.c_str(), base);
       }
       if (FindNextFile(h, &ffd)!=TRUE) break;
     }
     FindClose(h);
   }
   else // ordinary file
-    result=putsize(archive, s, fname, base);
+    result=putsize(archive, fname, base);
   return result;
 }
 
 #else
 #ifdef UNIX
 
-int expand(String& archive, String& s, const char* fname, int base) {
+int expand(String& archive, const char* fname, int base) {
   int result=0;
   struct stat sb;
   if (stat(fname, &sb)<0) return 0;
 
   // If a regular file and readable, get file size
   if (sb.st_mode & S_IFREG && sb.st_mode & 0400)
-    result+=putsize(archive, s, fname, base);
+    result+=putsize(archive, fname, base);
 
   // If a directory with read and execute permission, traverse it
   else if (sb.st_mode & S_IFDIR && sb.st_mode & 0400 && sb.st_mode & 0100) {
@@ -4398,8 +4379,8 @@ int expand(String& archive, String& s, const char* fname, int base) {
 
 #else  // Not WINDOWS or UNIX, ignore directories
 
-int expand(String& archive, String& s, const char* fname, int base) {
-  return putsize(archive, s, fname, base);
+int expand(String& archive, const char* fname, int base) {
+  return putsize(archive, fname, base);
 }
 
 #endif
@@ -4414,13 +4395,16 @@ int main(int argc, char** argv) {
 
     // Get option
     bool doExtract=false;  // -d option
+    bool doList=false;  // -l option
     if (argc>1 && argv[1][0]=='-' && argv[1][1] && !argv[1][2]) {
       if (argv[1][1]>='0' && argv[1][1]<='8')
         level=argv[1][1]-'0';
       else if (argv[1][1]=='d')
         doExtract=true;
+      else if (argv[1][1]=='l')
+        doList=true;
       else
-        quit("Valid options are -0 through -8 or -d\n");
+        quit("Valid options are -0 through -8, -d, -l\n");
       --argc;
       ++argv;
       pause=false;
@@ -4452,7 +4436,7 @@ int main(int argc, char** argv) {
         "  " PROGNAME " -d dir1/archive." PROGNAME " dir2 (extract to dir2)\n"
         "  " PROGNAME " archive." PROGNAME "              (extract, pause when done)\n"
         "\n"
-        "To view contents: more < archive." PROGNAME "\n"
+        "To view contents: " PROGNAME " -l archive." PROGNAME "\n"
         "\n",
         DEFAULT_OPTION);
       quit();
@@ -4460,7 +4444,7 @@ int main(int argc, char** argv) {
 
     FILE* archive=0;  // compressed file
     int files=0;  // number of files to compress/decompress
-    Array<char*> fname(1);  // file names (resized to files)
+    Array<const char*> fname(1);  // file names (resized to files)
     Array<long> fsize(1);   // file lengths (resized to files)
 
     // Compress or decompress?  Get archive name
@@ -4473,7 +4457,7 @@ int main(int argc, char** argv) {
           && equals(PROGNAME, argv[1]+arg1size-prognamesize)) {
         mode=DECOMPRESS;
       }
-      else if (doExtract)
+      else if (doExtract || doList)
         mode=DECOMPRESS;
       else {
         archiveName+=".";
@@ -4482,12 +4466,11 @@ int main(int argc, char** argv) {
     }
 
     // Compress: write archive header, get file names and sizes
-    String filenames;
+    String header_string;
     if (mode==COMPRESS) {
 
       // Expand filenames to read later.  Write their base names and sizes
       // to archive.
-      String header_string;
       int i;
       for (i=1; i<argc; ++i) {
         String name(argv[i]);
@@ -4500,42 +4483,20 @@ int main(int argc, char** argv) {
         while (base>=0 && name[base]!='/') --base;  // find last /
         ++base;
         if (base==0 && len>=2 && name[1]==':') base=2;  // chop "C:"
-        int expanded=expand(header_string, filenames, name.c_str(), base);
+        int expanded=expand(header_string, name.c_str(), base);
         if (!expanded && (i>1||argc==2))
           printf("%s: not found, skipping...\n", name.c_str());
         files+=expanded;
       }
 
-      // If archive doesn't exist and there is at least one file to compress
+      // If there is at least one file to compress
       // then create the archive header.
       if (files<1) quit("Nothing to compress\n");
-//      archive=fopen(archiveName.c_str(), "rb");
-//      if (archive)
-//        printf("%s already exists\n", archiveName.c_str()), quit();
       archive=fopen(archiveName.c_str(), "wb+");
       if (!archive) perror(archiveName.c_str()), quit();
-      fprintf(archive, PROGNAME " -%d\r\n%s\x1A",
-        level, header_string.c_str());
+      fprintf(archive, PROGNAME "%c%d", 0, level);
       printf("Creating archive %s with %d file(s)...\n",
         archiveName.c_str(), files);
-
-      // Fill fname[files], fsize[files] with input filenames and sizes
-      fname.resize(files);
-      fsize.resize(files);
-      char *p=&filenames[0];
-      rewind(archive);
-      getline(archive);
-      for (i=0; i<files; ++i) {
-        const char *num=getline(archive);
-        assert(num);
-        fsize[i]=atol(num);
-        assert(fsize[i]>=0);
-        fname[i]=p;
-        while (*p!='\n') ++p;
-        assert(p-filenames.c_str()<filenames.size());
-        *p++=0;
-      }
-      fseek(archive, 0, SEEK_END);
     }
 
     // Decompress: open archive for reading and store file names and sizes
@@ -4544,47 +4505,71 @@ int main(int argc, char** argv) {
       if (!archive) perror(archiveName.c_str()), quit();
 
       // Check for proper format and get option
-      const char* header=getline(archive);
-      if (strncmp(header, PROGNAME " -", strlen(PROGNAME)+2))
-        printf("%s: not a %s file\n", archiveName.c_str(), PROGNAME), quit();
-      level=header[strlen(PROGNAME)+2]-'0';
-      if (level<0||level>9) level=DEFAULT_OPTION;
-
-      // Fill fname[files], fsize[files] with output file names and sizes
-      while (getline(archive)) ++files;  // count files
-      printf("Extracting %d file(s) from %s -%d\n", files,
-        archiveName.c_str(), level);
-      long header_size=ftell(archive);
-      filenames.resize(header_size+4);  // copy of header
-      rewind(archive);
-      fread(&filenames[0], 1, header_size, archive);
-      fname.resize(files);
-      fsize.resize(files);
-      char* p=&filenames[0];
-      while (*p && *p!='\r') ++p;  // skip first line
-      ++p;
-      for (int i=0; i<files; ++i) {
-        fsize[i]=atol(p+1);
-        while (*p && *p!='\t') ++p;
-        fname[i]=p+1;
-        while (*p && *p!='\r') ++p;
-        if (!*p) printf("%s: header corrupted at %d\n", archiveName.c_str(),
-          p-&filenames[0]), quit();
-        assert(p-&filenames[0]<header_size);
-        *p++=0;
+      String header;
+      int len=strlen(PROGNAME)+2, c, i=0;
+      header.resize(len+1);
+      while (i<len && (c=getc(archive))!=EOF) {
+        header[i]=c;
+        i++;
       }
+      header[i]=0;
+      if (strncmp(header.c_str(), PROGNAME "\0", strlen(PROGNAME)+1))
+        printf("%s: not a %s file\n", archiveName.c_str(), PROGNAME), quit();
+      level=header[strlen(PROGNAME)+1]-'0';
+      if (level<0||level>8) level=DEFAULT_OPTION;
     }
 
     // Set globals according to option
-    assert(level>=0 && level<=9);
+    assert(level>=0 && level<=8);
     buf.setsize(MEM*8);
+    Encoder en(mode, archive);
+
+    // Compress header
+    if (mode==COMPRESS) {
+      int len=header_string.size();
+      printf("\nFile list (%ld bytes)\n", len);
+      assert(en.getMode()==COMPRESS);
+      long start=en.size();
+      en.compress(0); // block type 0
+      en.compress(len>>24); en.compress(len>>16); en.compress(len>>8); en.compress(len); // block length
+      for (int i=0; i<len; i++) en.compress(header_string[i]);
+      printf("Compressed from %ld to %ld bytes.\n",len,en.size()-start);
+    }
+
+    // Deompress header
+    if (mode==DECOMPRESS) {
+      if (en.decompress()!=0) printf("%s: header corrupted\n", archiveName.c_str()), quit();
+      int len=0;
+      len+=en.decompress()<<24;
+      len+=en.decompress()<<16;
+      len+=en.decompress()<<8;
+      len+=en.decompress();
+      header_string.resize(len);
+      for (int i=0; i<len; i++) {
+        header_string[i]=en.decompress();
+        if (header_string[i]=='\n') files++;
+      }
+      if (doList) printf("File list of %s archive:\n%s", archiveName.c_str(), header_string.c_str());
+    }
+
+    // Fill fname[files], fsize[files] with input filenames and sizes
+    fname.resize(files);
+    fsize.resize(files);
+    char *p=&header_string[0];
+    for (int i=0; i<files; ++i) {
+      assert(p);
+      fsize[i]=atol(p);
+      assert(fsize[i]>=0);
+      while (*p!='\t') ++p; *(p++)='\0';
+      fname[i]=p;
+      while (*p!='\n') ++p; *(p++)='\0';
+    }
 
     // Compress or decompress files
     assert(fname.size()==files);
     assert(fsize.size()==files);
     long total_size=0;  // sum of file sizes
     for (int i=0; i<files; ++i) total_size+=fsize[i];
-    Encoder en(mode, archive);
     if (mode==COMPRESS) {
       for (int i=0; i<files; ++i) {
         printf("\n%d/%d  Filename: %s (%ld bytes)\n", i+1, files, fname[i], fsize[i]);
@@ -4597,7 +4582,7 @@ int main(int argc, char** argv) {
     // Decompress files to dir2: paq8px -d dir1/archive.paq8px dir2
     // If there is no dir2, then extract to dir1
     // If there is no dir1, then extract to .
-    else {
+    else if (!doList) {
       assert(argc>=2);
       String dir(argc>2?argv[2]:argv[1]);
       if (argc==2) {  // chop "/archive.paq8px"
@@ -4623,7 +4608,7 @@ int main(int argc, char** argv) {
       }
     }
     fclose(archive);
-    programChecker.print();
+    if (!doList) programChecker.print();
   }
   catch(const char* s) {
     if (s) printf("%s\n", s);
