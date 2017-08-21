@@ -2015,19 +2015,19 @@ void sparseModel(Mixer& m, int seenbefore, int howmany) {
     cm.set(buf(1)|buf(6)<<8);
     cm.set(buf(3)|buf(6)<<8);
     cm.set(buf(4)|buf(8)<<8);
-    cm.set((c4&0x00f0f0ff));
-    cm.set((c4&0x00ff00ff));
-    cm.set((c4&0xff0000ff));
-    cm.set((c4&0x00f8f8f8));
-    cm.set((c4&0xf8f8f8f8));
-    cm.set((c4&0x00f0f0f0));
-    cm.set((c4&0xf0f0f0f0));
-    cm.set((c4&0x00e0e0e0));
-    cm.set((c4&0xe0e0e0e0));
-    cm.set((c4&0x810000c1));
-    cm.set((c4&0xC3CCC38C));
-    cm.set((c4&0x0081CC81));
-    cm.set((c4&0x00c10081));
+    cm.set(c4&0x00f0f0ff);
+    cm.set(c4&0x00ff00ff);
+    cm.set(c4&0xff0000ff);
+    cm.set(c4&0x00f8f8f8);
+    cm.set(c4&0xf8f8f8f8);
+    cm.set(c4&0x00f0f0f0);
+    cm.set(c4&0xf0f0f0f0);
+    cm.set(c4&0x00e0e0e0);
+    cm.set(c4&0xe0e0e0e0);
+    cm.set(c4&0x810000c1);
+    cm.set(c4&0xC3CCC38C);
+    cm.set(c4&0x0081CC81);
+    cm.set(c4&0x00c10081);
     for (int i=1; i<8; ++i) {
       cm.set(seenbefore|buf(i)<<8);
       cm.set((buf(i+2)<<8)|buf(i+1));
@@ -2507,7 +2507,6 @@ int jpegModel(Mixer& m) {
       }
       for (j=0; j<64; ++j) zpos[zzu[j]+8*zzv[j]]=j;
       width=buf[sof+7]*256+buf[sof+8];  // in pixels
-      int height=buf[sof+5]*256+buf[sof+6];
       width=(width-1)/(hmax*8)+1;  // in MCU
       jassert(width>0);
       mcusize*=64;  // coefficients per MCU
@@ -3136,13 +3135,13 @@ void nestModel(Mixer& m)
     if (bc > 300) bc = ic = pc = qc = 0;
 
     int fl = 0;
-    if (c4&0xff != 0) {
+    if ((c4&0xff) != 0) {
       if (isalpha(c4&0xff)) fl = 1;
       else if (ispunct(c4&0xff)) fl = 2;
       else if (isspace(c4&0xff)) fl = 3;
-      else if (c4&0xff == 0xff) fl = 4;
-      else if (c4&0xff < 16) fl = 5;
-      else if (c4&0xff < 64) fl = 6;
+      else if ((c4&0xff) == 0xff) fl = 4;
+      else if ((c4&0xff) < 16) fl = 5;
+      else if ((c4&0xff) < 64) fl = 6;
       else fl = 7;
     }
     mask = (mask<<3)|fl;
@@ -3150,10 +3149,10 @@ void nestModel(Mixer& m)
     cm.set((3*vc+77*pc+373*ic+qc)&0xffff);
     cm.set((31*vc+27*pc+281*qc)&0xffff);
     cm.set((13*vc+271*ic+qc+bc)&0xffff);
-    cm.set(((17*pc+7*ic))&0xffff);
-    cm.set(((13*vc+ic))&0xffff);
-    cm.set(((vc/3+pc))&0xffff);
-    cm.set(((7*wc+qc))&0xffff);
+    cm.set((17*pc+7*ic)&0xffff);
+    cm.set((13*vc+ic)&0xffff);
+    cm.set((vc/3+pc)&0xffff);
+    cm.set((7*wc+qc)&0xffff);
     cm.set((1*vc)&0xffff);
     cm.set((3*pc)&0xffff);
     cm.set(ic&0xffff);
@@ -3686,10 +3685,9 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
     if ((buf0==0x4d2e4b2e || buf0==0x3643484e || buf0==0x3843484e  // M.K. 6CHN 8CHN
        || buf0==0x464c5434 || buf0==0x464c5438) && (buf1&0xc0c0c0c0)==0 && i>=1083) {
       long savedpos=ftell(in);
-      const int chn=((buf0>>24)==0x36?6:(((buf0>>24)==0x38 || buf0&0xff==0x38)?8:4));
+      const int chn=((buf0>>24)==0x36?6:(((buf0>>24)==0x38 || (buf0&0xff)==0x38)?8:4));
       int len=0; // total length of samples
       int numpat=1; // number of patterns
-      int ok=1;
       for (int j=0; j<31; j++) {
         fseek(in, start+i-1083+42+j*30, SEEK_SET);
         const int i1=getc(in);
@@ -3799,7 +3797,7 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
     }
 
     // Detect .tiff file header (2/8/24 bit color, not compressed).
-    if (buf1==0x49492a00 && bswap(buf0)+i<n) {
+    if (buf1==0x49492a00 && n>i+(int)bswap(buf0)) {
       long savedpos=ftell(in);
       fseek(in, start+i+bswap(buf0)-7, SEEK_SET);
 
@@ -3846,7 +3844,7 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
     if (tga) {
       if (i-tga==8) tga=(buf1==0?tga:0),tgax=(bswap(buf0)&0xffff),tgay=(bswap(buf0)>>16);
       else if (i-tga==10) {
-        if (tgaz==((buf0&0xffff)>>8) && tgax && tgay) {
+        if (tgaz==(int)((buf0&0xffff)>>8) && tgax && tgay) {
           if (tgat==1) IMG_DET(IMAGE8,tga-7,18+256*3,tgax,tgay);
           else if (tgat==2) IMG_DET(IMAGE24,tga-7,18,tgax*3,tgay);
           else if (tgat==3) IMG_DET(IMAGE8,tga-7,18,tgax,tgay);
@@ -4103,7 +4101,7 @@ void compressRecursive(FILE *in, long n, Encoder &en, char *blstr, int it=0, int
     if (len>0) {
       s2-=len;
       sprintf(blstr,"%s%d",b2,blnum++);
-      printf(" %-11s | %-9s |%10d bytes [%d - %d]",blstr,typenames[type],len,begin,end-1);
+      printf(" %-11s | %-9s |%10d bytes [%ld - %ld]",blstr,typenames[type],len,begin,end-1);
       if (type==AUDIO) printf(" (%s)", audiotypes[info%4]);
       else if (type==IMAGE1 || type==IMAGE8 || type==IMAGE24) printf(" (width: %d)", info);
       else if (type==CD) printf(" (m%d/f%d)", info==1?1:2, info!=3?1:2);
@@ -4126,7 +4124,7 @@ void compressRecursive(FILE *in, long n, Encoder &en, char *blstr, int it=0, int
 
         // Test fails, compress without transform
         if (diffFound || fgetc(tmp)!=EOF) {
-          printf("Transform fails at %ld, skipping...\n", diffFound-1);
+          printf("Transform fails at %d, skipping...\n", diffFound-1);
           fseek(in, begin, SEEK_SET);
           direct_encode_block(DEFAULT, in, len, en, s1, s2);
         } else {
