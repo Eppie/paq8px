@@ -2159,7 +2159,8 @@ int im24bitModel(Mixer& m) {
     if (buf(66)=='B' && buf(65)=='M' && i4(56)==66 && i4(52)==40 && i4(36)==0) bo=66;
     if (bo) {
       w=(i4(bo-18)*3)+3&-4;  // image width
-      const int height=i4(bo-22);
+      int height=i4(bo-22);
+	  if (height<0) height*=(-1);
       eoi=pos;
       if (w<0x30000 && height<0x10000) {
         eoi=pos+w*height;  // image size in bytes
@@ -2387,6 +2388,7 @@ int bmpModel8(Mixer& m) {
     if ((i4(44)<1079) && i4(40)==40 && i4(24)==0 && (buf(26)==8)) {
       w1=i4(36);  // image width
       h=i4(32);   // image height
+	  if (h<0) h*=(-1);
       ibmp=pos+i4(44)-54;
     }
     if (ibmp==pos) {
@@ -2476,6 +2478,7 @@ void bmpModel1(Mixer& m) {
       ibmp=pos+2;
     }
     if (ibmp==pos) {
+	  if (h<0) h*=(-1);
       brow=((((w-1)>>5)+1)*4);
       eoi=pos+((((w-1)>>5)+1)*4*h);
       printf("BMP(1-bit) %dx%d ",w,h);
@@ -3812,7 +3815,7 @@ Filetype detect(FILE* in, int n, Filetype type) {
       if (p==12) bmpimgoff=bswap(buf0);
       if (p==16 && buf0!=0x28000000) bmp=0; //windows bmp?
       if (p==20) bmpx=bswap(buf0),bmp=(bmpx==0?0:bmp); //width
-      if (p==24) bmpy=bswap(buf0),bmp=(bmpy==0?0:bmp); //height
+	  if (p==24) bmpy=bswap(buf0),(bmpy<0?bmpy*=(-1):bmpy),bmp=(bmpy==0?0:bmp); //height
       if (p==27) imgbpp=c,bmp=((imgbpp!=1 && imgbpp!=4 && imgbpp!=8 && imgbpp!=24)?0:bmp);
       if (p==31) imgcomp=buf0,bmp=(imgcomp!=0?0:bmp);
       if ((type==BMPFILE1 || type==BMPFILE4 || type==BMPFILE8 || type==BMPFILE24) && imgbpp!=0 && imgcomp==0) {
