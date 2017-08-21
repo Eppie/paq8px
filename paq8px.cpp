@@ -2789,40 +2789,45 @@ inline int s2(int i) {
   return int(short(buf(i)+256*buf(i-1)));
 }
 
-inline int X(int i, int j) {
-  if (wmode==18) {
-    if (i<=S) return s2(i+j<<2); else return s2((i+j-S<<2)-2);
-  }
-  else if (wmode==17) return s2(i+j<<1);
-  else if (wmode==10) {
-    if (i<=S) return buf(i+j<<1); else return buf((i+j-S<<1)-1);
-  }
-  else if (wmode==9) return buf(i+j);
-  else return (buf(i+j)+128)&255;
+inline int X1(int i) {
+  if (wmode==18) return s2(i<<2);
+  else if (wmode==17) return s2(i<<1);
+  else if (wmode==10) return buf(i<<1);
+  else if (wmode==9) return buf(i);
+  else return buf(i)^128;
+}
+
+inline int X2(int i) {
+  if (wmode==18) return s2((i<<2)-2);
+  else if (wmode==17) return s2(i+S<<1);
+  else if (wmode==10) return buf((i<<1)-1);
+  else if (wmode==9) return buf(i+S);
+  else return buf(i+S)^128;
 }
 
 void wavModel(Mixer& m, int info) {
   static int pr[3][2], n[2], counter[2];
   static double F[49][49][2],L[49][49];
   int j,k,l,i=0;
-  double sum,a=0.996;
+  double sum;
+  const double a=0.996,a2=1/a;
   const int SC=0x20000;
   static SmallStationaryContextMap scm1(SC), scm2(SC), scm3(SC), scm4(SC), scm5(SC), scm6(SC), scm7(SC);
   static ContextMap cm(MEM*4, 10);
   static int bits, channels, w;
 
   if (blpos==0) {
-    for (int j=0; j<channels; j++) {
-      for (k=0; k<=S+D; k++) for (l=k; l<=S+D; l++) F[k][l][j]=0;
-      F[1][0][j]=1;
-      n[j]=counter[j]=0;
-    }
     bits=info>16?16:8;
     channels=info&3;
     if (info==8) channels=1;
     w=channels*(bits>>3);
     wmode=info;
     if (channels==1) S=48,D=0; else S=36,D=12;
+    for (int j=0; j<channels; j++) {
+      for (k=0; k<=S+D; k++) for (l=k; l<=S+D; l++) F[k][l][j]=0, L[k][l]=0;
+      F[1][0][j]=1;
+      n[j]=counter[j]=0;
+    }
   }
   // Select previous samples and predicted sample as context
   if (!bpos) {
@@ -2830,14 +2835,17 @@ void wavModel(Mixer& m, int info) {
     const int msb=ch%(bits>>3);
     const int chn=ch/(bits>>3);
     if (!msb) {
-      for (l=0; l<=S+D; l++) if (l<counter[chn]||(l-S-1>=0&&l-S-1<counter[chn])) F[0][l][chn]=F[0][l][chn]*a+X(0,1)*X(l,1);
+      k=X1(1);
+      for (l=0; l<=min(S,counter[chn]-1); l++) F[0][l][chn]=F[0][l][chn]*a+X1(l+1)*k;
+      for (l=1; l<=min(D,counter[chn]); l++) F[0][l+S][chn]=F[0][l+S][chn]*a+X2(l+1)*k;
       if (channels==2) {
-        for (l=S+1; l<=S+D; l++) if (l-S-1<counter[chn]) F[S+1][l][chn]=F[S+1][l][chn]*a+X(S+1,1)*X(l,1);
-        for (k=1; k<=S; k++) if (k<counter[chn]) F[k][S+1][chn]=F[k][S+1][chn]*a+X(k,1)*X(S+1,1);
+        k=X2(2);
+        for (l=1; l<=min(D,counter[chn]); l++) F[S+1][l+S][chn]=F[S+1][l+S][chn]*a+X2(l+1)*k;
+        for (l=1; l<=min(S,counter[chn]-1); l++) F[l][S+1][chn]=F[l][S+1][chn]*a+X1(l+1)*k;
       }
       if (++n[chn]==(256>>level)) {
-        if (channels==1) for (k=1; k<=S+D; k++) for (l=k; l<=S+D; l++) F[k][l][chn]=(F[k-1][l-1][chn]-X(k-1,1)*X(l-1,1))/a;
-        else for (k=1; k<=S+D; k++) if (k!=S+1) for (l=k; l<=S+D; l++) if (l!=S+1) F[k][l][chn]=(F[k-1][l-1][chn]-X(k-1,1)*X(l-1,1))/a;
+        if (channels==1) for (k=1; k<=S+D; k++) for (l=k; l<=S+D; l++) F[k][l][chn]=(F[k-1][l-1][chn]-X1(k)*X1(l))*a2;
+        else for (k=1; k<=S+D; k++) if (k!=S+1) for (l=k; l<=S+D; l++) if (l!=S+1) F[k][l][chn]=(F[k-1][l-1][chn]-(k-1<=S?X1(k):X2(k-S))*(l-1<=S?X1(l):X2(l-S)))*a2;
         for (i=1; i<=S+D; i++) {
            sum=F[i][i][chn];
            for (k=1; k<i; k++) sum-=L[i][k]*L[i][k];
@@ -2864,14 +2872,13 @@ void wavModel(Mixer& m, int info) {
         n[chn]=0;
       }
       sum=0;
-      for (l=1; l<=S+D; l++) sum+=F[l][0][chn]*X(l,0);
+      for (l=1; l<=S+D; l++) sum+=F[l][0][chn]*(l<=S?X1(l):X2(l-S));
       pr[2][chn]=pr[1][chn];
       pr[1][chn]=pr[0][chn];
       pr[0][chn]=int(floor(sum));
       counter[chn]++;
     }
-    const int x3=(wmode==8?128:0);
-    const int x1=(buf(1)+x3)&255, x2=(buf(2)+x3)&255, y1=pr[0][chn], y2=pr[1][chn], y3=pr[2][chn];
+    const int x1=buf(1)^(wmode==8?128:0), x2=buf(2)^(wmode==8?128:0), y1=pr[0][chn], y2=pr[1][chn], y3=pr[2][chn];
     const int t=(msb!=0), z1=s2(w+t), z2=s2(w*2+t), z3=s2(w*3+t), z4=s2(w*4+t), z5=s2(w*5+t);
     i=ch<<4;
     if (!msb) {
