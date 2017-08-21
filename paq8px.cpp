@@ -1,4 +1,4 @@
-/* paq8px file compressor/archiver.  Release by Jan Ondrus, Aug. 17, 2009
+/* paq8px file compressor/archiver.  Release by Jan Ondrus, Oct. 29, 2009
 
     Copyright (C) 2008 Matt Mahoney, Serge Osnach, Alexander Ratushnyak,
     Bill Pettis, Przemyslaw Skibinski, Matthew Fite, wowtiger, Andrew Paterson,
@@ -2068,7 +2068,7 @@ inline int sqrbuf(int i) {
 void im24bitModel(Mixer& m, int w) {
   const int SC=0x20000;
   static SmallStationaryContextMap scm1(SC), scm2(SC),
-    scm3(SC), scm4(SC), scm5(SC), scm6(SC), scm7(SC), scm8(SC), scm9(SC*2), scm10(SC);
+    scm3(SC), scm4(SC), scm5(SC), scm6(SC), scm7(SC), scm8(SC), scm9(SC*2), scm10(512);
   static ContextMap cm(MEM*4, 13);
 
   // Select nearby pixels as context
@@ -2079,20 +2079,20 @@ void im24bitModel(Mixer& m, int w) {
     const int var=(sqrbuf(3)+sqrbuf(w-3)+sqrbuf(w)+sqrbuf(w+3)-mean*mean/4)>>2;
     mean>>=2;
     const int logvar=ilog(var);
-    int i=0;
-    cm.set(hash(++i, buf(3), color));
-    cm.set(hash(++i, buf(3), buf(1), color));
-    cm.set(hash(++i, buf(3), buf(1)>>2, buf(2)>>6, color));
-    cm.set(hash(++i, buf(w), color));
-    cm.set(hash(++i, buf(w), buf(1), color));
-    cm.set(hash(++i, buf(w), buf(1)>>2, buf(2)>>6, color));
-    cm.set(hash(++i, (buf(3)+buf(w))>>3, buf(1)>>5, buf(2)>>5, color));
-    cm.set(hash(++i, buf(1), buf(2), color));
-    cm.set(hash(++i, buf(3), buf(1)-buf(4), color));
-    cm.set(hash(++i, buf(3)+buf(1)-buf(4), color));
-    cm.set(hash(++i, buf(w), buf(1)-buf(w+1), color));
-    cm.set(hash(++i, buf(w)+buf(1)-buf(w+1), color));
-    cm.set(hash(++i, mean, logvar>>5, color));
+    int i=color<<4;
+    cm.set(hash(++i, buf(3)));
+    cm.set(hash(++i, buf(3), buf(1)));
+    cm.set(hash(++i, buf(3), buf(1), buf(2)));
+    cm.set(hash(++i, buf(w)));
+    cm.set(hash(++i, buf(w), buf(1)));
+    cm.set(hash(++i, buf(w), buf(1), buf(2)));
+    cm.set(hash(++i, (buf(3)+buf(w))>>3, buf(1)>>4, buf(2)>>4));
+    cm.set(hash(++i, buf(1), buf(2)));
+    cm.set(hash(++i, buf(3), buf(1)-buf(4)));
+    cm.set(hash(++i, buf(3)+buf(1)-buf(4)));
+    cm.set(hash(++i, buf(w), buf(1)-buf(w+1)));
+    cm.set(hash(++i, buf(w)+buf(1)-buf(w+1)));
+    cm.set(hash(++i, mean, logvar>>4));
     scm1.set(buf(3)+buf(w)-buf(w+3));
     scm2.set(buf(3)+buf(w-3)-buf(w));
     scm3.set(buf(3)*2-buf(6));
@@ -2120,7 +2120,7 @@ void im24bitModel(Mixer& m, int w) {
   if (++col>=24) col=0;
   m.set(2, 8);
   m.set(col, 24);
-  m.set((buf(w)+buf(3))>>4, 32);
+  m.set((buf(1)>>4)*3+(pos%3), 48);
   m.set(c0, 256);
 }
 
@@ -3960,8 +3960,9 @@ void encode_bmp(FILE* in, FILE* out, int len, int width) {
 }
 
 int decode_bmp(Encoder& en, int size, int width, FILE *out, FMode mode, int &diffFound) {
-  int r,g,b;
+  int r,g,b,p;
   for (int i=0; i<size/width; i++) {
+    p=i*width;
     for (int j=0; j<width/3; j++) {
       b=en.decompress(), g=en.decompress(), r=en.decompress();
       if (mode==FDECOMPRESS) {
@@ -3970,9 +3971,10 @@ int decode_bmp(Encoder& en, int size, int width, FILE *out, FMode mode, int &dif
         fputc(b-g, out);
       }
       else if (mode==FCOMPARE) {
-        if (((b-r)&255)!=getc(out) && !diffFound) diffFound=i+1;
-        if (b!=getc(out) && !diffFound) diffFound=i+2;
-        if (((b-g)&255)!=getc(out) && !diffFound) diffFound=i+3;
+        if (((b-r)&255)!=getc(out) && !diffFound) diffFound=p+1;
+        if (b!=getc(out) && !diffFound) diffFound=p+2;
+        if (((b-g)&255)!=getc(out) && !diffFound) diffFound=p+3;
+        p+=3;
       }
     }
     for (int j=0; j<width%3; j++) {
@@ -3980,7 +3982,7 @@ int decode_bmp(Encoder& en, int size, int width, FILE *out, FMode mode, int &dif
         fputc(en.decompress(), out);
       }
       else if (mode==FCOMPARE) {
-        if (en.decompress()!=getc(out) && !diffFound) diffFound=i+1;
+        if (en.decompress()!=getc(out) && !diffFound) diffFound=p+j+1;
       }
     }
   }
