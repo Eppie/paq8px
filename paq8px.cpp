@@ -3186,7 +3186,7 @@ int contextModel2() {
     if (size==-1) ft2=(Filetype)buf(1);
     if (size==-5 && ft2!=IMAGE1 && ft2!=IMAGE8 && ft2!=IMAGE24 && ft2!=AUDIO && ft2!=EXE) {
       size=buf(4)<<24|buf(3)<<16|buf(2)<<8|buf(1);
-      if (ft2==CD) size=(size/2352)*2051+(size%2352);
+      if (ft2==CD) size=3+(size/2352)*2048+(size%2352);
       blpos=0;
     }
     if (size==-9) {
