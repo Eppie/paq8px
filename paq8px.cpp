@@ -2006,49 +2006,32 @@ void recordModel(Mixer& m) {
 // Model order 1-2 contexts with gaps.
 
 void sparseModel(Mixer& m, int seenbefore, int howmany) {
-  static ContextMap cm(MEM*2, 48);
-  static int mask = 0;
-
+  static ContextMap cm(MEM*2, 40);
   if (bpos==0) {
-
-    cm.set(c4&0x00f0f0f0);
-    cm.set((c4&0xf0f0f0f0)+1);
-    cm.set((c4&0x00f8f8f8)+2);
-    cm.set((c4&0xf8f8f8f8)+3);
-    cm.set((c4&0x00e0e0e0)+4);
-    cm.set((c4&0xe0e0e0e0)+5);
-    cm.set((c4&0x00f0f0ff)+6);
-
     cm.set(seenbefore);
     cm.set(howmany);
-    cm.set(c4&0x00ff00ff);
-    cm.set(c4&0xff0000ff);
     cm.set(buf(1)|buf(5)<<8);
     cm.set(buf(1)|buf(6)<<8);
     cm.set(buf(3)|buf(6)<<8);
     cm.set(buf(4)|buf(8)<<8);
-
+    cm.set((c4&0x00f0f0ff));
+    cm.set((c4&0x00ff00ff));
+    cm.set((c4&0xff0000ff));
+    cm.set((c4&0x00f8f8f8));
+    cm.set((c4&0xf8f8f8f8));
+    cm.set((c4&0x00f0f0f0));
+    cm.set((c4&0xf0f0f0f0));
+    cm.set((c4&0x00e0e0e0));
+    cm.set((c4&0xe0e0e0e0));
+    cm.set((c4&0x810000c1));
+    cm.set((c4&0xC3CCC38C));
+    cm.set((c4&0x0081CC81));
+    cm.set((c4&0x00c10081));
     for (int i=1; i<8; ++i) {
-      cm.set((buf(i+1)<<8)|buf(i+2));
-      cm.set((buf(i+1)<<8)|buf(i+3));
       cm.set(seenbefore|buf(i)<<8);
+      cm.set((buf(i+2)<<8)|buf(i+1));
+      cm.set((buf(i+3)<<8)|buf(i+1));
     }
-
-    int fl = 0;
-    if (c4&0xff != 0) {
-      if (isalpha(c4&0xff)) fl = 1;
-      else if (ispunct(c4&0xff)) fl = 2;
-      else if (isspace(c4&0xff)) fl = 3;
-      else if (c4&0xff == 0xff) fl = 4;
-      else if (c4&0xff < 16) fl = 5;
-      else if (c4&0xff < 64) fl = 6;
-      else fl = 7;
-    }
-    mask = (mask<<3)|fl;
-    cm.set(mask);
-    cm.set(mask<<8|buf(1));
-    cm.set(mask<<17|buf(2)<<8|buf(3));
-    cm.set(mask&0x1ff|((c4&0xf0f0f0f0)<<9));
   }
   cm.mix(m);
 }
@@ -2955,21 +2938,23 @@ void wavModel(Mixer& m, int info) {
 // bits relevant to parsing (2 prefixes, opcode, and mod and r/m fields
 // of modR/M byte).
 
+inline int pref(int i) { return (buf(i)==0x0f)+2*(buf(i)==0x66)+3*(buf(i)==0x67); }
+
 // Get context at buf(i) relevant to parsing 32-bit x86 code
 U32 execxt(int i, int x=0) {
-  int prefix=(buf(i+2)==0x0f)+2*(buf(i+2)==0x66)+3*(buf(i+2)==0x67)
-    +4*(buf(i+3)==0x0f)+8*(buf(i+3)==0x66)+12*(buf(i+3)==0x67);
-  int opcode=buf(i+1);
-  int modrm=i ? buf(i)&0xc7 : 0;
+  int prefix=0, opcode=0, modrm=0;
+  if (i) prefix+=4*pref(i--);
+  if (i) prefix+=pref(i--);
+  if (i) opcode+=buf(i--);
+  if (i) modrm+=buf(i)&0xc7;
   return prefix|opcode<<4|modrm<<12|x<<20;
 }
 
 void exeModel(Mixer& m) {
-  const int N=12;
+  const int N=14;
   static ContextMap cm(MEM, N);
   if (!bpos) {
-    for (int i=0; i<N; ++i)
-      cm.set(execxt(i, buf(1)*(i>4)));
+    for (int i=0; i<N; ++i) cm.set(execxt(i+1, buf(1)*(i>6)));
   }
   cm.mix(m);
 }
@@ -2990,15 +2975,14 @@ void indirectModel(Mixer& m) {
     r1=r1<<8|c;
     U16& r2=t2[c4>>8&0xffff];
     r2=r2<<8|c;
-    U32 t=c|t1[c]<<8;
-    cm.set(t&0xffff);
-    cm.set(t&0xffffff);
+    const U32 t=c|t1[c]<<8;
+    const U32 t0=d|t2[d]<<16;
     cm.set(t);
+    cm.set(t0);
     cm.set(t&0xff00);
-    t=d|t2[d]<<16;
-    cm.set(t&0xffffff);
-    cm.set(t);
-
+    cm.set(t0&0xff0000);
+    cm.set(t&0xffff);
+    cm.set(t0&0xffffff);
   }
   cm.mix(m);
 }
@@ -3094,7 +3078,8 @@ void dmcModel(Mixer& m) {
 void nestModel(Mixer& m)
 {
   static int ic=0, bc=0, pc=0,vc=0, qc=0, lvc=0, wc=0;
-  static ContextMap cm(MEM, 14-4);
+  static ContextMap cm(MEM, 14);
+  static U32 mask = 0;
   if (bpos==0) {
     int c=c4&255, matched=1, vv;
     const int lc = (c >= 'A' && c <= 'Z'?c+'a'-'A':c);
@@ -3144,16 +3129,33 @@ void nestModel(Mixer& m)
     }
     if (matched) bc = 0; else bc += 1;
     if (bc > 300) bc = ic = pc = qc = 0;
-    cm.set(ic&0xffff);
-    cm.set((3*pc)&0xffff);
-    cm.set((1*vc)&0xffff);
-    cm.set(((13*vc+ic))&0xffff);
-    cm.set(((17*pc+7*ic))&0xffff);
-    cm.set(((vc/3+pc))&0xffff);
-    cm.set(((7*wc+qc))&0xffff);
+
+    int fl = 0;
+    if (c4&0xff != 0) {
+      if (isalpha(c4&0xff)) fl = 1;
+      else if (ispunct(c4&0xff)) fl = 2;
+      else if (isspace(c4&0xff)) fl = 3;
+      else if (c4&0xff == 0xff) fl = 4;
+      else if (c4&0xff < 16) fl = 5;
+      else if (c4&0xff < 64) fl = 6;
+      else fl = 7;
+    }
+    mask = (mask<<3)|fl;
+
     cm.set((3*vc+77*pc+373*ic+qc)&0xffff);
     cm.set((31*vc+27*pc+281*qc)&0xffff);
     cm.set((13*vc+271*ic+qc+bc)&0xffff);
+    cm.set(((17*pc+7*ic))&0xffff);
+    cm.set(((13*vc+ic))&0xffff);
+    cm.set(((vc/3+pc))&0xffff);
+    cm.set(((7*wc+qc))&0xffff);
+    cm.set((1*vc)&0xffff);
+    cm.set((3*pc)&0xffff);
+    cm.set(ic&0xffff);
+    cm.set(mask);
+    cm.set(mask<<8|buf(1));
+    cm.set(mask<<17|buf(2)<<8|buf(3));
+    cm.set(mask&0x1ff|((c4&0xf0f0f0f0)<<9));
   }
   cm.mix(m);
 }
@@ -3169,7 +3171,7 @@ typedef enum {DEFAULT, JPEG, HDR, IMAGE1, IMAGE8, IMAGE24, AUDIO, EXE} Filetype;
 int contextModel2() {
   static ContextMap cm(MEM*32, 9);
   static RunContextMap rcm7(MEM), rcm9(MEM), rcm10(MEM);
-  static Mixer m(800, 3088, 7, 128);
+  static Mixer m(825, 3095, 7, 128);
   static U32 cxt[16];  // order 0-11 contexts
   static Filetype ft2,filetype=DEFAULT;
   static int size=0;  // bytes remaining in block
@@ -3181,9 +3183,8 @@ int contextModel2() {
     ++blpos;
     if (size==0) filetype=DEFAULT;
     if (size==-1) ft2=(Filetype)buf(1);
-    if (size==-5 && ft2!=IMAGE1 && ft2!=IMAGE8 && ft2!=IMAGE24 && ft2!=AUDIO) {
+    if (size==-5 && ft2!=IMAGE1 && ft2!=IMAGE8 && ft2!=IMAGE24 && ft2!=AUDIO && ft2!=EXE) {
       size=buf(4)<<24|buf(3)<<16|buf(2)<<8|buf(1);
-      if (ft2==EXE) size+=8;
       blpos=0;
     }
     if (size==-9) {
@@ -3765,7 +3766,6 @@ int decode_default(Encoder& en) {
 void encode_exe(FILE* in, FILE* out, int len, int begin) {
   const int BLOCK=0x10000;
   Array<U8> blk(BLOCK);
-  fprintf(out, "%c%c%c%c", len>>24, len>>16, len>>8, len); // size, MSB first
   fprintf(out, "%c%c%c%c", begin>>24, begin>>16, begin>>8, begin);
 
   // Transform
@@ -3788,20 +3788,17 @@ void encode_exe(FILE* in, FILE* out, int len, int begin) {
   }
 }
 
-int decode_exe(Encoder& en) {
+int decode_exe(Encoder& en, int size) {
   const int BLOCK=0x10000;  // block size
   static int offset=0, q=0;  // decode state: file offset, queue size
-  static int size=0;  // where to stop coding
+  static int size2=0;  // where to stop coding
   static int begin=0;  // offset in file
   static U8 c[5];  // queue of last 5 bytes, c[0] at front
 
   // Read size from first 4 bytes, MSB first
-  while (offset==size && q==0) {
+  while (offset==size2 && q==0) {
+    size2=size;
     offset=0;
-    size=en.decompress()<<24;
-    size|=en.decompress()<<16;
-    size|=en.decompress()<<8;
-    size|=en.decompress();
     begin=en.decompress()<<24;
     begin|=en.decompress()<<16;
     begin|=en.decompress()<<8;
@@ -3809,7 +3806,7 @@ int decode_exe(Encoder& en) {
   }
 
   // Fill queue
-  while (offset<size && q<5) {
+  while (offset<size2 && q<5) {
     memmove(c+1, c, 4);
     c[0]=en.decompress();
     ++q;
@@ -3836,7 +3833,7 @@ int decode_exe(Encoder& en) {
 // Decode <type> <len> <data>...
 int decode(Encoder& en) {
   static Filetype type=DEFAULT;
-  static int len=0;
+  static int len=0, size=0;
   while (len==0) {
     type=(Filetype)en.decompress();
     len=en.decompress()<<24;
@@ -3845,10 +3842,11 @@ int decode(Encoder& en) {
     len|=en.decompress();
     if (len<0) len=1;
     if (type==IMAGE1 || type==IMAGE8 || type==IMAGE24 || type==AUDIO) for (int i=0;i<4;i++) en.decompress();
+    size=len;
   }
   --len;
   switch (type) {
-    case EXE:  return decode_exe(en);
+    case EXE:  return decode_exe(en, size);
     default:   return decode_default(en);
   }
 }
