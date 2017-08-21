@@ -1,4 +1,4 @@
-/* paq8px file compressor/archiver.  Release by Jan Ondrus, Jul. 25, 2009
+/* paq8px file compressor/archiver.  Release by Jan Ondrus, Aug. 16, 2009
 
     Copyright (C) 2008 Matt Mahoney, Serge Osnach, Alexander Ratushnyak,
     Bill Pettis, Przemyslaw Skibinski, Matthew Fite, wowtiger, Andrew Paterson,
@@ -820,7 +820,7 @@ public:
     i=0;
   }
   U32 operator()() {
-    return ++i, table[i&63]=table[i-24&63]^table[i-55&63];
+    return ++i, table[i&63]=table[(i-24)&63]^table[(i-55)&63];
   }
 } rnd;
 
@@ -843,11 +843,11 @@ public:
     b.resize(i);
   }
   U8& operator[](int i) {
-    return b[i&b.size()-1];
+    return b[i&(b.size()-1)];
   }
   int operator()(int i) const {
     assert(i>0);
-    return b[pos-i&b.size()-1];
+    return b[(pos-i)&(b.size()-1)];
   }
   int size() const {
     return b.size();
@@ -862,7 +862,7 @@ class IntBuf {
 public:
   IntBuf(int i=0): b(i) {}
   int& operator[](int i) {
-    return b[i&b.size()-1];
+    return b[i&(b.size()-1)];
   }
 };
 
@@ -1321,11 +1321,11 @@ public:
     assert(pr>=0 && pr<4096 && cxt>=0 && cxt<N && rate>0 && rate<32);
     pr=stretch(pr);
     int g=(y<<16)+(y<<rate)-y-y;
-    t[index] += g-t[index] >> rate;
-    t[index+1] += g-t[index+1] >> rate;
+    t[index] += (g-t[index]) >> rate;
+    t[index+1] += (g-t[index+1]) >> rate;
     const int w=pr&127;  // interpolation weight (33 points)
-    index=(pr+2048>>7)+cxt*33;
-    return t[index]*(128-w)+t[index+1]*w >> 11;
+    index=((pr+2048)>>7)+cxt*33;
+    return (t[index]*(128-w)+t[index+1]*w) >> 11;
   }
 };
 
@@ -1358,7 +1358,7 @@ protected:
     U32 *p=&t[cxt], p0=p[0];
     int n=p0&1023, pr=p0>>10;  // count, prediction
     if (n<limit) ++p0;
-    else p0=p0&0xfffffc00|limit;;
+    else p0=(p0&0xfffffc00)|limit;
     p0+=(((y<<22)-pr)>>3)*dt[n]&0xfffffc00;
     p[0]=p0;
   }
@@ -1404,7 +1404,7 @@ public:
     cx=cx*24+(pr>>12);
     assert(cx>=0 && cx<N-1);
     cxt=cx+(wt>>11);
-    pr=(t[cx]>>13)*(0x1000-wt)+(t[cx+1]>>13)*wt>>19;
+    pr=((t[cx]>>13)*(0x1000-wt)+(t[cx+1]>>13)*wt)>>19;
     return pr;
   }
 };
@@ -1543,8 +1543,8 @@ public:
     cp=t[cx]+1;
   }
   int p() {  // predict next bit
-    if (cp[1]+256>>8-bpos==c0)
-      return ((cp[1]>>7-bpos&1)*2-1)*ilog(cp[0]+1)*8;
+    if ((cp[1]+256)>>(8-bpos)==c0)
+      return ((cp[1]>>(7-bpos)&1)*2-1)*ilog(cp[0]+1)*8;
     else
       return 0;
   }
@@ -1568,12 +1568,12 @@ public:
     cp=&t[0];
   }
   void set(U32 cx) {
-    cxt=cx*256&t.size()-256;
+    cxt=cx*256&(t.size()-256);
   }
   void mix(Mixer& m, int rate=7) {
-    *cp += (y<<16)-*cp+(1<<rate-1) >> rate;
+    *cp += ((y<<16)-(*cp)+(1<<(rate-1))) >> rate;
     cp=&t[cxt+c0];
-    m.add(stretch(*cp>>4));
+    m.add(stretch((*cp)>>4));
   }
 };
 
@@ -1699,7 +1699,7 @@ int ContextMap::mix1(Mixer& m, int cc, int bp, int c1, int y1) {
       assert(cp[i]>=&t[0].bh[0][0] && cp[i]<=&t[t.size()-1].bh[6][6]);
       assert((long(cp[i])&63)>=15);
       int ns=nex(*cp[i], y1);
-      if (ns>=204 && rnd() << (452-ns>>3)) ns-=4;  // probabilistic increment
+      if (ns>=204 && rnd() << ((452-ns)>>3)) ns-=4;  // probabilistic increment
       *cp[i]=ns;
     }
 
@@ -1714,18 +1714,18 @@ int ContextMap::mix1(Mixer& m, int cc, int bp, int c1, int y1) {
      {
       case 1: case 3: case 6: cp[i]=cp0[i]+1+(cc&1); break;
       case 4: case 7: cp[i]=cp0[i]+3+(cc&3); break;
-      case 2: case 5: cp0[i]=cp[i]=t[cxt[i]+cc&t.size()-1].get(cxt[i]>>16); break;
+      case 2: case 5: cp0[i]=cp[i]=t[(cxt[i]+cc)&(t.size()-1)].get(cxt[i]>>16); break;
       default:
       {
-       cp0[i]=cp[i]=t[cxt[i]+cc&t.size()-1].get(cxt[i]>>16);
+       cp0[i]=cp[i]=t[(cxt[i]+cc)&(t.size()-1)].get(cxt[i]>>16);
        // Update pending bit histories for bits 2-7
        if (cp0[i][3]==2) {
          const int c=cp0[i][4]+256;
-         U8 *p=t[cxt[i]+(c>>6)&t.size()-1].get(cxt[i]>>16);
+         U8 *p=t[(cxt[i]+(c>>6))&(t.size()-1)].get(cxt[i]>>16);
          p[0]=1+((c>>5)&1);
          p[1+((c>>5)&1)]=1+((c>>4)&1);
          p[3+((c>>4)&3)]=1+((c>>3)&1);
-         p=t[cxt[i]+(c>>3)&t.size()-1].get(cxt[i]>>16);
+         p=t[(cxt[i]+(c>>3))&(t.size()-1)].get(cxt[i]>>16);
          p[0]=1+((c>>2)&1);
          p[1+((c>>2)&1)]=1+((c>>1)&1);
          p[3+((c>>1)&3)]=1+(c&1);
@@ -1746,10 +1746,10 @@ int ContextMap::mix1(Mixer& m, int cc, int bp, int c1, int y1) {
     }
 
     // predict from last byte in context
-    if (runp[i][1]+256>>8-bp==cc) {
+    if ((runp[i][1]+256)>>(8-bp)==cc) {
       int rc=runp[i][0];  // count*2, +1 if 2 different bytes seen
-      int b=(runp[i][1]>>7-bp&1)*2-1;  // predicted bit + for 1, - for 0
-      int c=ilog(rc+1)<<2+(~rc&1);
+      int b=(runp[i][1]>>(7-bp)&1)*2-1;  // predicted bit + for 1, - for 0
+      int c=ilog(rc+1)<<(2+(~rc&1));
       m.add(b*c);
     }
     else
@@ -1791,7 +1791,7 @@ int matchModel(Mixer& m) {
   static SmallStationaryContextMap scm1(0x20000);
 
   if (!bpos) {
-    h=h*997*8+buf(1)+1&t.size()-1;  // update context hash
+    h=(h*997*8+buf(1)+1)&(t.size()-1);  // update context hash
     if (len) ++len, ++ptr;
     else {  // find match
       ptr=t[h];
@@ -1807,10 +1807,10 @@ int matchModel(Mixer& m) {
   // predict
   if (len)
   {
-   if (buf(1)==buf[ptr-1] && c0==buf[ptr]+256>>8-bpos)
+   if (buf(1)==buf[ptr-1] && c0==(buf[ptr]+256)>>(8-bpos))
    {
     if (len>MAXLEN) len=MAXLEN;
-    if (buf[ptr]>>7-bpos&1)
+    if (buf[ptr]>>(7-bpos)&1)
     {
      m.add(ilog(len)<<2);
      m.add(min(len, 32)<<6);
@@ -1857,7 +1857,7 @@ void wordModel(Mixer& m) {
     words=words*2;
 
     if (c>='A' && c<='Z') c+='a'-'A';
-    if (c>='a' && c<='z'  || c>=128) {
+    if ((c>='a' && c<='z') || c>=128) {
       ++words, ++wordcount;
       word0=word0*263*32+c;
       text0=text0*997*16+c;
@@ -1888,7 +1888,7 @@ void wordModel(Mixer& m) {
     cm.set(spafdo|spaces<<8);
     cm.set(frstchar<<11|c);
     cm.set(col<<8|frstchar);
-    cm.set(spaces<<8|words&255);
+    cm.set(spaces<<8|(words&255));
 
     cm.set(number0+word2*31);
     cm.set(number0+word1*31);
@@ -1952,11 +1952,10 @@ void recordModel(Mixer& m) {
   // Find record length
   if (!bpos) {
     int w=c4&0xffff, c=w&255, d=w>>8;
-#if 1
     int r=pos-cpos1[c];
     if (r>1 && r==cpos1[c]-cpos2[c]
         && r==cpos2[c]-cpos3[c] && r==cpos3[c]-cpos4[c]
-        && (r>15 || (c==buf(r*5+1)) && c==buf(r*6+1))) {
+        && (r>15 || ((c==buf(r*5+1)) && c==buf(r*6+1)))) {
       if (r==rlen1) ++rcount1;
       else if (r==rlen2) ++rcount2;
       else if (rcount1>rcount2) rlen2=r, rcount2=1;
@@ -1967,7 +1966,6 @@ void recordModel(Mixer& m) {
 
     // Set 2 dimensional contexts
     assert(rlen>0);
-#endif
     cm.set(c<<8| (min(255, pos-cpos1[c])/4));
     cm.set(w<<9| llog(pos-wpos1[w])>>2);
 
@@ -2051,7 +2049,7 @@ void distanceModel(Mixer& m) {
     if (c==0xff||c=='\r'||c=='\n') posnl=pos;
     cr.set(min(pos-pos00,255)|(c<<8));
     cr.set(min(pos-pos20,255)|(c<<8));
-    cr.set(min(pos-posnl,255)|(c<<8)+234567);
+    cr.set(min(pos-posnl,255)|((c<<8)+234567));
   }
   cr.mix(m);
 }
@@ -2078,7 +2076,7 @@ void im24bitModel(Mixer& m, int w) {
     assert(w>3);
     int color=pos%3;
     int mean=buf(3)+buf(w-3)+buf(w)+buf(w+3);
-    const int var=sqrbuf(3)+sqrbuf(w-3)+sqrbuf(w)+sqrbuf(w+3)-mean*mean/4>>2;
+    const int var=(sqrbuf(3)+sqrbuf(w-3)+sqrbuf(w)+sqrbuf(w+3)-mean*mean/4)>>2;
     mean>>=2;
     const int logvar=ilog(var);
     int i=0;
@@ -2088,7 +2086,7 @@ void im24bitModel(Mixer& m, int w) {
     cm.set(hash(++i, buf(w), color));
     cm.set(hash(++i, buf(w), buf(1), color));
     cm.set(hash(++i, buf(w), buf(1)>>2, buf(2)>>6, color));
-    cm.set(hash(++i, buf(3)+buf(w)>>3, buf(1)>>5, buf(2)>>5, color));
+    cm.set(hash(++i, (buf(3)+buf(w))>>3, buf(1)>>5, buf(2)>>5, color));
     cm.set(hash(++i, buf(1), buf(2), color));
     cm.set(hash(++i, buf(3), buf(1)-buf(4), color));
     cm.set(hash(++i, buf(3)+buf(1)-buf(4), color));
@@ -2103,7 +2101,7 @@ void im24bitModel(Mixer& m, int w) {
     scm6.set(buf(w-3)*2-buf(w*2-6));
     scm7.set(buf(w-3)+buf(1)-buf(w-2));
     scm8.set(buf(w)+buf(w-3)-buf(w*2-3));
-    scm9.set(mean>>1|logvar<<1&0x180);
+    scm9.set(mean>>1|(logvar<<1&0x180));
   }
 
   // Predict next bit
@@ -2122,7 +2120,7 @@ void im24bitModel(Mixer& m, int w) {
   if (++col>=24) col=0;
   m.set(2, 8);
   m.set(col, 24);
-  m.set(buf(w)+buf(3)>>4, 32);
+  m.set((buf(w)+buf(3))>>4, 32);
   m.set(c0, 256);
 }
 
@@ -2140,7 +2138,7 @@ void im8bitModel(Mixer& m, int w) {
   if (!bpos) {
     assert(w>3);
     int mean=buf(1)+buf(w-1)+buf(w)+buf(w+1);
-    const int var=sqrbuf(1)+sqrbuf(w-1)+sqrbuf(w)+sqrbuf(w+1)-mean*mean/4>>2;
+    const int var=(sqrbuf(1)+sqrbuf(w-1)+sqrbuf(w)+sqrbuf(w+1)-mean*mean/4)>>2;
     mean>>=2;
     const int logvar=ilog(var);
     int i=0;
@@ -2153,38 +2151,38 @@ void im8bitModel(Mixer& m, int w) {
     cm.set(hash(++i, buf(w+1)>>2, buf(w+2)>>2));
     cm.set(hash(++i, buf(w+1)>>2, buf(w*2+2)>>2));
     cm.set(hash(++i, buf(w-1)>>2, buf(w*2-2)>>2));
-    cm.set(hash(++i, buf(1)+buf(w)>>1));
-    cm.set(hash(++i, buf(1)+buf(2)>>1));
-    cm.set(hash(++i, buf(w)+buf(w*2)>>1));
-    cm.set(hash(++i, buf(1)+buf(w-1)>>1));
-    cm.set(hash(++i, buf(w)+buf(w+1)>>1));
-    cm.set(hash(++i, buf(w+1)+buf(w+2)>>1));
-    cm.set(hash(++i, buf(w+1)+buf(w*2+2)>>1));
-    cm.set(hash(++i, buf(w-1)+buf(w*2-2)>>1));
+    cm.set(hash(++i, (buf(1)+buf(w))>>1));
+    cm.set(hash(++i, (buf(1)+buf(2))>>1));
+    cm.set(hash(++i, (buf(w)+buf(w*2))>>1));
+    cm.set(hash(++i, (buf(1)+buf(w-1))>>1));
+    cm.set(hash(++i, (buf(w)+buf(w+1))>>1));
+    cm.set(hash(++i, (buf(w+1)+buf(w+2))>>1));
+    cm.set(hash(++i, (buf(w+1)+buf(w*2+2))>>1));
+    cm.set(hash(++i, (buf(w-1)+buf(w*2-2))>>1));
     // 3 x
     cm.set(hash(++i, buf(w)>>2, buf(1)>>2, buf(w-1)>>2));
     cm.set(hash(++i, buf(w-1)>>2, buf(w)>>2, buf(w+1)>>2));
     cm.set(hash(++i, buf(1)>>2, buf(w-1)>>2, buf(w*2-1)>>2));
     // mixed
-    cm.set(hash(++i, buf(3)+buf(w)>>1, buf(1)>>2, buf(2)>>2));
-    cm.set(hash(++i, buf(2)+buf(1)>>1,buf(w)+buf(w*2)>>1,buf(w-1)>>2));
-    cm.set(hash(++i, buf(2)+buf(1)>>2,buf(w-1)+buf(w)>>2));
-    cm.set(hash(++i, buf(2)+buf(1)>>1,buf(w)+buf(w*2)>>1));
-    cm.set(hash(++i, buf(2)+buf(1)>>1,buf(w-1)+buf(w*2-2)>>1));
-    cm.set(hash(++i, buf(2)+buf(1)>>1,buf(w+1)+buf(w*2+2)>>1));
-    cm.set(hash(++i, buf(w)+buf(w*2)>>1,buf(w-1)+buf(w*2+2)>>1));
-    cm.set(hash(++i, buf(w-1)+buf(w)>>1,buf(w)+buf(w+1)>>1));
-    cm.set(hash(++i, buf(1)+buf(w-1)>>1,buf(w)+buf(w*2)>>1));
-    cm.set(hash(++i, buf(1)+buf(w-1)>>2,buf(w)+buf(w+1)>>2));
-    cm.set(hash(++i, (buf(1)-buf(w-1)>>1)+buf(w)>>2));
-    cm.set(hash(++i, (buf(w-1)-buf(w)>>1)+buf(1)>>2));
-    cm.set(hash(++i, -buf(1)+buf(w-1)+buf(w)>>2));
-    scm1.set(buf(1)+buf(w)>>1);
-    scm2.set(buf(1)+buf(w)-buf(w+1)>>1);
-    scm3.set(buf(1)*2-buf(2)>>1);
-    scm4.set(buf(w)*2-buf(w*2)>>1);
-    scm5.set(buf(1)+buf(w)-buf(w-1)>>1);
-    scm6.set(mean>>1|logvar<<1&0x180);
+    cm.set(hash(++i, (buf(3)+buf(w))>>1, buf(1)>>2, buf(2)>>2));
+    cm.set(hash(++i, (buf(2)+buf(1))>>1,(buf(w)+buf(w*2))>>1,buf(w-1)>>2));
+    cm.set(hash(++i, (buf(2)+buf(1))>>2,(buf(w-1)+buf(w))>>2));
+    cm.set(hash(++i, (buf(2)+buf(1))>>1,(buf(w)+buf(w*2))>>1));
+    cm.set(hash(++i, (buf(2)+buf(1))>>1,(buf(w-1)+buf(w*2-2))>>1));
+    cm.set(hash(++i, (buf(2)+buf(1))>>1,(buf(w+1)+buf(w*2+2))>>1));
+    cm.set(hash(++i, (buf(w)+buf(w*2))>>1,(buf(w-1)+buf(w*2+2))>>1));
+    cm.set(hash(++i, (buf(w-1)+buf(w))>>1,(buf(w)+buf(w+1))>>1));
+    cm.set(hash(++i, (buf(1)+buf(w-1))>>1,(buf(w)+buf(w*2))>>1));
+    cm.set(hash(++i, (buf(1)+buf(w-1))>>2,(buf(w)+buf(w+1))>>2));
+    cm.set(hash(++i, (((buf(1)-buf(w-1))>>1)+buf(w))>>2));
+    cm.set(hash(++i, (((buf(w-1)-buf(w))>>1)+buf(1))>>2));
+    cm.set(hash(++i, (-buf(1)+buf(w-1)+buf(w))>>2));
+    scm1.set((buf(1)+buf(w))>>1);
+    scm2.set((buf(1)+buf(w)-buf(w+1))>>1);
+    scm3.set((buf(1)*2-buf(2))>>1);
+    scm4.set((buf(w)*2-buf(w*2))>>1);
+    scm5.set((buf(1)+buf(w)-buf(w-1))>>1);
+    scm6.set(mean>>1|(logvar<<1&0x180));
   }
 
   // Predict next bit
@@ -2200,7 +2198,7 @@ void im8bitModel(Mixer& m, int w) {
   if (++col>=8) col=0; // reset after every 24 columns?
   m.set(2, 8);
   m.set(col, 8);
-  m.set(buf(w)+buf(1)>>4, 32);
+  m.set((buf(w)+buf(1))>>4, 32);
   m.set(c0, 256);
 }
 
@@ -2225,14 +2223,14 @@ void im1bitModel(Mixer& m, int w) {
   r1+=r1+((buf(w-1)>>(7-bpos))&1);
   r2+=r2+((buf(w+w-1)>>(7-bpos))&1);
   r3+=r3+((buf(w+w+w-1)>>(7-bpos))&1);
-  cxt[0]=r0&0x7|r1>>4&0x38|r2>>3&0xc0;
-  cxt[1]=0x100+(r0&1|r1>>4&0x3e|r2>>2&0x40|r3>>1&0x80);
-  cxt[2]=0x200+(r0&0x3f^r1&0x3ffe^r2<<2&0x7f00^r3<<5&0xf800);
-  cxt[3]=0x400+(r0&0x3e^r1&0x0C0C^r2&0xc800);  //?
-  cxt[4]=0x800+(r1&0x30^r3&0x0c0c|r0&3);       //?
-  cxt[5]=0x1000+(!r0&0x444|r1&0xC0C|r2&0xAE3|r3&0x51C);
-  cxt[6]=0x2000+(r0&1|r1>>4&0x1d|r2>>1&0x60|r3&0xC0);
-  cxt[7]=0x4000+(r0>>4&0x2AC|r1&0xA4|r2&0x349|!r3&0x14D);
+  cxt[0]=(r0&0x7)|(r1>>4&0x38)|(r2>>3&0xc0);
+  cxt[1]=0x100+((r0&1)|(r1>>4&0x3e)|(r2>>2&0x40)|(r3>>1&0x80));
+  cxt[2]=0x200+((r0&0x3f)^(r1&0x3ffe)^(r2<<2&0x7f00)^(r3<<5&0xf800));
+  cxt[3]=0x400+((r0&0x3e)^(r1&0x0c0c)^(r2&0xc800));
+  cxt[4]=0x800+(((r1&0x30)^(r3&0x0c0c))|(r0&3));
+  cxt[5]=0x1000+((!r0&0x444)|(r1&0xC0C)|(r2&0xAE3)|(r3&0x51C));
+  cxt[6]=0x2000+((r0&1)|(r1>>4&0x1d)|(r2>>1&0x60)|(r3&0xC0));
+  cxt[7]=0x4000+((r0>>4&0x2AC)|(r1&0xA4)|(r2&0x349)|(!r3&0x14D));
 
   // predict
   for (i=0; i<N; ++i) m.add(stretch(sm[i].p(t[cxt[i]])));
@@ -2503,7 +2501,7 @@ int jpegModel(Mixer& m) {
       for (j=0; j<mcusize; ++j) {
         ls[j]=0;
         for (int i=1; i<mcusize; ++i) if (color[(j+i)%mcusize]==color[j]) ls[j]=i;
-        ls[j]=mcusize-ls[j]<<6;
+        ls[j]=(mcusize-ls[j])<<6;
       }
       for (j=0; j<64; ++j) zpos[zzu[j]+8*zzv[j]]=j;
       width=buf[sof+7]*256+buf[sof+8];  // in pixels
@@ -2553,7 +2551,7 @@ int jpegModel(Mixer& m) {
           int x=0;  // decoded extra bits
           if (mcupos&63) {  // AC
             if (rs==0) { // EOB
-              mcupos=mcupos+63&-64;
+              mcupos=(mcupos+63)&-64;
               jassert(mcupos>=0 && mcupos<=mcusize && mcupos<=640);
               while (cpos&63) {
                 cbuf2[cpos]=0;
@@ -2565,31 +2563,31 @@ int jpegModel(Mixer& m) {
               jassert((rs&15)<=10);
               const int r=rs>>4;
               const int s=rs&15;
-              jassert(mcupos>>6==mcupos+r>>6);
+              jassert(mcupos>>6==(mcupos+r)>>6);
               mcupos+=r+1;
-              x=huffcode&(1<<s)-1;
-              if (s && !(x>>s-1)) x-=(1<<s)-1;
+              x=huffcode&((1<<s)-1);
+              if (s && !(x>>(s-1))) x-=(1<<s)-1;
               for (int i=r; i>=1; --i) {
                 cbuf2[cpos]=0;
                 cbuf[cpos++]=i<<4|s;
               }
               cbuf2[cpos]=x;
-              cbuf[cpos++]=s<<4|huffcode<<2>>s&3|12;
+              cbuf[cpos++]=(s<<4)|(huffcode<<2>>s&3)|12;
               ssum+=s;
             }
           }
           else {  // DC: rs = 0S, s<12
             jassert(rs<12);
             ++mcupos;
-            x=huffcode&(1<<rs)-1;
-            if (rs && !(x>>rs-1)) x-=(1<<rs)-1;
+            x=huffcode&((1<<rs)-1);
+            if (rs && !(x>>(rs-1))) x-=(1<<rs)-1;
             jassert(mcupos>=0 && mcupos>>6<10);
             const int comp=color[mcupos>>6];
             jassert(comp>=0 && comp<4);
             dc=pred[comp]+=x;
             jassert((cpos&63)==0);
             cbuf2[cpos]=dc;
-            cbuf[cpos++]=dc+1023>>3;
+            cbuf[cpos++]=(dc+1023)>>3;
             if ((mcupos>>6)==0) {
               ssum1=0;
               ssum2=ssum3;
@@ -2636,8 +2634,8 @@ int jpegModel(Mixer& m) {
                   adv_pred[i+4]=p/4;
                 }
                 else if (abs(p)>abs(adv_pred[i])+1) {
-                  adv_pred[i]+=st*2+(p>0)<<6;
-                  if (abs(p/4)>abs(adv_pred[i+4])+1) adv_pred[i+4]+=st*2+(p>0)<<6;
+                  adv_pred[i]+=(st*2+(p>0))<<6;
+                  if (abs(p/4)>abs(adv_pred[i+4])+1) adv_pred[i+4]+=(st*2+(p>0))<<6;
                   break;
                 }
               }
@@ -2751,8 +2749,8 @@ int jpegModel(Mixer& m) {
   m1.set(hc&511, 512);
   int pr=m1.p();
   m.add(stretch(pr));
-  pr=a1.p(pr, hc&511|(adv_pred[1]==0?0:(abs(adv_pred[1])-4)&63)<<9, 1023);
-  pr=a2.p(pr, hc&255|coef<<8, 255);
+  pr=a1.p(pr, (hc&511)|((adv_pred[1]==0?0:(abs(adv_pred[1])-4)&63)<<9), 1023);
+  pr=a2.p(pr, (hc&255)|(coef<<8), 255);
   m.add(stretch(pr));
   m.set(1, 8);
   m.set(1+(hc&255), 257);
@@ -2790,11 +2788,11 @@ inline int X2(int i) {
   switch (wmode) {
     case 0: return buf(i+S)-128;
     case 1: return buf((i<<1)-1)-128;
-    case 2: return s2(i+S<<1);
+    case 2: return s2((i+S)<<1);
     case 3: return s2((i<<2)-2);
     case 4: return (buf(i+S)^128)-128;
     case 5: return (buf((i<<1)-1)^128)-128;
-    case 6: return t2(i+S<<1);
+    case 6: return t2((i+S)<<1);
     case 7: return t2((i<<2)-2);
     default: return 0;
   }
@@ -2887,34 +2885,34 @@ void wavModel(Mixer& m, int info) {
     i=ch<<4;
     if ((msb)^(wmode<6)) {
       cm.set(hash(++i, y1&0xff));
-      cm.set(hash(++i, y1&0xff, (z1-y2+z2-y3>>1)&0xff));
+      cm.set(hash(++i, y1&0xff, ((z1-y2+z2-y3)>>1)&0xff));
       cm.set(hash(++i, x1, y1&0xff));
       cm.set(hash(++i, x1, x2>>3, x3));
-      cm.set(hash(++i, y1+z1-y2&0xff));
+      cm.set(hash(++i, (y1+z1-y2)&0xff));
       cm.set(hash(++i, x1));
       cm.set(hash(++i, x1, x2));
       cm.set(hash(++i, z1&0xff));
-      cm.set(hash(++i, z1*2-z2&0xff));
+      cm.set(hash(++i, (z1*2-z2)&0xff));
       cm.set(hash(++i, z6&0xff));
     } else {
-      cm.set(hash(++i, y1-x1+z1-y2>>8));
-      cm.set(hash(++i, y1-x1>>8));
-      cm.set(hash(++i, y1-x1+z1*2-y2*2-z2+y3>>8));
-      cm.set(hash(++i, y1-x1>>8, z1-y2+z2-y3>>9));
+      cm.set(hash(++i, (y1-x1+z1-y2)>>8));
+      cm.set(hash(++i, (y1-x1)>>8));
+      cm.set(hash(++i, (y1-x1+z1*2-y2*2-z2+y3)>>8));
+      cm.set(hash(++i, (y1-x1)>>8, (z1-y2+z2-y3)>>9));
       cm.set(hash(++i, z1>>12));
       cm.set(hash(++i, x1));
       cm.set(hash(++i, x1>>7, x2, x3>>7));
       cm.set(hash(++i, z1>>8));
-      cm.set(hash(++i, z1*2-z2>>8));
+      cm.set(hash(++i, (z1*2-z2)>>8));
       cm.set(hash(++i, y1>>8));
     }
     scm1.set(t*ch);
-    scm2.set(t*(z1-x1+y1>>9)&0xff);
-    scm3.set(t*(z1*2-z2-x1+y1>>8)&0xff);
-    scm4.set(t*(z1*3-z2*3+z3-x1>>7)&0xff);
-    scm5.set(t*(z1+z7-x1+y1*2>>10)&0xff);
-    scm6.set(t*(z1*4-z2*6+z3*4-z4-x1>>7)&0xff);
-    scm7.set(t*(z1*5-z2*10+z3*10-z4*5+z5-x1+y1>>9)&0xff);
+    scm2.set(t*((z1-x1+y1)>>9)&0xff);
+    scm3.set(t*((z1*2-z2-x1+y1)>>8)&0xff);
+    scm4.set(t*((z1*3-z2*3+z3-x1)>>7)&0xff);
+    scm5.set(t*((z1+z7-x1+y1*2)>>10)&0xff);
+    scm6.set(t*((z1*4-z2*6+z3*4-z4-x1)>>7)&0xff);
+    scm7.set(t*((z1*5-z2*10+z3*10-z4*5+z5-x1+y1)>>9)&0xff);
   }
 
   // Predict next bit
@@ -3157,9 +3155,9 @@ void nestModel(Mixer& m)
     cm.set((3*pc)&0xffff);
     cm.set(ic&0xffff);
     cm.set(mask);
-    cm.set(mask<<8|buf(1));
-    cm.set(mask<<17|buf(2)<<8|buf(3));
-    cm.set(mask&0x1ff|((c4&0xf0f0f0f0)<<9));
+    cm.set((mask<<8)|buf(1));
+    cm.set((mask<<17)|(buf(2)<<8)|buf(3));
+    cm.set((mask&0x1ff)|((c4&0xf0f0f0f0)<<9));
   }
   cm.mix(m);
 }
@@ -3302,16 +3300,16 @@ void Predictor::update() {
   pr=a.p(pr0, c0);
 
   int pr1=a1.p(pr0, c0+256*buf(1));
-  int pr2=a2.p(pr0, c0^hash(buf(1), buf(2))&0xffff);
-  int pr3=a3.p(pr0, c0^hash(buf(1), buf(2), buf(3))&0xffff);
-  pr0=pr0+pr1+pr2+pr3+2>>2;
+  int pr2=a2.p(pr0, (c0^hash(buf(1), buf(2)))&0xffff);
+  int pr3=a3.p(pr0, (c0^hash(buf(1), buf(2), buf(3)))&0xffff);
+  pr0=(pr0+pr1+pr2+pr3+2)>>2;
 
   pr1=a4.p(pr, c0+256*buf(1));
-  pr2=a5.p(pr, c0^hash(buf(1), buf(2))&0xffff);
-  pr3=a6.p(pr, c0^hash(buf(1), buf(2), buf(3))&0xffff);
-  pr=pr+pr1+pr2+pr3+2>>2;
+  pr2=a5.p(pr, (c0^hash(buf(1), buf(2)))&0xffff);
+  pr3=a6.p(pr, (c0^hash(buf(1), buf(2), buf(3)))&0xffff);
+  pr=(pr+pr1+pr2+pr3+2)>>2;
 
-  pr=pr+pr0+1>>1;
+  pr=(pr+pr0+1)>>1;
 }
 
 //////////////////////////// Encoder ////////////////////////////
@@ -3348,7 +3346,7 @@ private:
     int p=predictor.p();
     assert(p>=0 && p<4096);
     p+=p<2048;
-    U32 xmid=x1 + (x2-x1>>12)*p + ((x2-x1&0xfff)*p>>12);
+    U32 xmid=x1 + ((x2-x1)>>12)*p + (((x2-x1)&0xfff)*p>>12);
     assert(xmid>=x1 && xmid<x2);
     if (mode==DECOMPRESS) y=x<=xmid; else y=i;
     y ? (x2=xmid) : (x1=xmid+1);
@@ -3746,8 +3744,8 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
       else if (p==31) {
         if (imgbpp!=0 && buf0==0) {
           if (imgbpp==1) IMG_DET(IMAGE1,bmp-1,bmpof,(((bmpx-1)>>5)+1)*4,bmpy);
-          else if (imgbpp==8) IMG_DET(IMAGE8,bmp-1,bmpof,bmpx+3&-4,bmpy);
-          else if (imgbpp==24) IMG_DET(IMAGE24,bmp-1,bmpof,(bmpx*3)+3&-4,bmpy);
+          else if (imgbpp==8) IMG_DET(IMAGE8,bmp-1,bmpof,(bmpx+3)&-4,bmpy);
+          else if (imgbpp==24) IMG_DET(IMAGE24,bmp-1,bmpof,((bmpx*3)+3)&-4,bmpy);
         }
         bmp=0;
       }
@@ -3859,9 +3857,9 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
     // 4 times in a row.  Detect end of EXE at the last
     // place this happens when it does not happen for 64KB.
 
-    if (((buf1&0xfe)==0xe8 || (buf1&0xfff0)==0x0f80) && (buf0+1&0xfe)==0) {
+    if (((buf1&0xfe)==0xe8 || (buf1&0xfff0)==0x0f80) && ((buf0+1)&0xfe)==0) {
       int r=buf0>>24;  // relative address low 8 bits
-      int a=(buf0>>24)+i&0xff;  // absolute address low 8 bits
+      int a=((buf0>>24)+i)&0xff;  // absolute address low 8 bits
       int rdist=i-relpos[r];
       int adist=i-abspos[a];
       if (adist<rdist && adist<0x800 && abspos[a]>5) {
@@ -4030,7 +4028,7 @@ int decode_exe(Encoder& en, int size, FILE *out, FMode mode, int &diffFound, lon
     if (offset<=size) c[0]=en.decompress();
     // E8E9 transform: E8/E9 xx xx xx 00/FF -> subtract location from x
     if ((c[0]==0x00 || c[0]==0xFF) && (c[4]==0xE8 || c[4]==0xE9 || (c[5]==0x0F && (c[4]&0xF0)==0x80))
-     && ((offset-1^offset-6)&-BLOCK)==0 && offset<=size) { // not crossing block boundary
+     && (((offset-1)^(offset-6))&-BLOCK)==0 && offset<=size) { // not crossing block boundary
       a=((c[1]^176)|(c[2]^176)<<8|(c[3]^176)<<16|c[0]<<24)-offset-begin;
       a<<=7;
       a>>=7;
