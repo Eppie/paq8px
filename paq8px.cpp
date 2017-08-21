@@ -2855,7 +2855,7 @@ void wavModel(Mixer& m, int info) {
         for (i=1; i<=S+D; i++) {
            sum=F[i][i][chn];
            for (k=1; k<i; k++) sum-=L[i][k]*L[i][k];
-           if (sum>1) {
+           if (sum>1/2) {
              L[i][i]=sqrt(sum);
              for (j=(i+1); j<=S+D; j++) {
                sum=F[i][j][chn];
