@@ -3496,10 +3496,8 @@ Filetype detect(FILE* in, int n, Filetype type, int &imgw) {
   int soi=0, sof=0, sos=0, app=0;  // position where found
   // For .RGB detection
   int rgbi=0,rgbx=0,rgby=0,rgbz=0;
-  // For .TIFF detection
-  int tiff=0;
   // For .TGA detection
-  int tga=0,tgax=0,tgay=0,tgaz=0;
+  int tga=0,tgax=0,tgay=0,tgaz=0,tgat;
 
   // For image detection
   static int imgh=0,imgd=0;  // image header/data size in bytes
@@ -3598,18 +3596,15 @@ Filetype detect(FILE* in, int n, Filetype type, int &imgw) {
       }
     }
 
-    // Detect .tif file header (8/24 bit color, not compressed).
-    if (buf0==0x49492a00) tiff=i;
-    if (tiff) {
-      if (i-tiff==4 && bswap(buf0)+tiff<n) {
+    // Detect .tiff file header (2/8/24 bit color, not compressed).
+    if (buf1==0x49492a00 && bswap(buf0)+i<n) {
         long savedpos=ftell(in);
-        fseek(in, start+tiff+bswap(buf0)-3, SEEK_SET);
+        fseek(in, start+i+bswap(buf0)-7, SEEK_SET);
 
         // read directory
         int dirsize=getc(in);
         int tifx=0,tify=0,tifz=0,tifzb=0,tifc=0,tifofs=0,tifofval=0,b[12];
-        if (getc(in)>0) tiff=0;
-        else {
+        if (getc(in)==0) {
           for (int i=0; i<dirsize; i++) {
             for (int j=0; j<12; j++) b[j]=getc(in);
             if (b[11]==EOF) break;
@@ -3622,40 +3617,37 @@ Filetype detect(FILE* in, int n, Filetype type, int &imgw) {
               else if (tag==257) tify=tagval;
               else if (tag==258) tifzb=taglen==1?tagval:8; // bits per component
               else if (tag==259) tifc=tagval; // 1 = no compression
-              else if (tag==273) {
-                if (tagfmt==3) tiff=0;   // stop if offsets stored in 16-bit
-                else tifofs=tagval,tifofval=(taglen<=1);
-              }
+              else if (tag==273 && tagfmt==4) tifofs=tagval,tifofval=(taglen<=1);
               else if (tag==277) tifz=tagval; // components per pixel
             }
           }
         }
-        if (tiff && tifx && tify && tifzb && (tifz==1 || tifz==3) && (tifc==1) && (tifofs && tifofs+tiff<n)) {
+        if (tifx && tify && tifzb && (tifz==1 || tifz==3) && (tifc==1) && (tifofs && tifofs+i<n)) {
           if (!tifofval) {
-            fseek(in, start+tiff+tifofs-3, SEEK_SET);
+            fseek(in, start+i+tifofs-7, SEEK_SET);
             for (int j=0; j<4; j++) b[j]=getc(in);
             tifofs=b[0]+(b[1]<<8)+(b[2]<<16)+(b[3]<<24);
           }
-          if (tifofs && tifofs<65536 && tifofs+tiff<n) {
-            if (tifz==1 && tifzb==1) IMG_DET(IMAGE1,tiff-3,tifofs,((tifx-1)>>3)+1,tify);
-            else if (tifz==1 && tifzb==8) IMG_DET(IMAGE8,tiff-3,tifofs,tifx,tify);
-            else if (tifz==3 && tifzb==8) IMG_DET(IMAGE24,tiff-3,tifofs,tifx*3,tify);
+          if (tifofs && tifofs<65536 && tifofs+i<n) {
+            if (tifz==1 && tifzb==1) IMG_DET(IMAGE1,i-7,tifofs,((tifx-1)>>3)+1,tify);
+            else if (tifz==1 && tifzb==8) IMG_DET(IMAGE8,i-7,tifofs,tifx,tify);
+            else if (tifz==3 && tifzb==8) IMG_DET(IMAGE24,i-7,tifofs,tifx*3,tify);
           }
         }
-        tiff=0;
         fseek(in, savedpos, SEEK_SET);
-      }
     }
 
     // Detect .tga image (8-bit 256 colors or 24-bit uncompressed)
-    if (buf1==0x00000200 && buf0==0x00000000) tga=i,tgax=tgay=0,tgaz=24;
-    if (buf1==0x00010100 && buf0==0x00000118) tga=i,tgax=tgay=0,tgaz=8;
+    if (buf1==0x00010100 && buf0==0x00000118) tga=i,tgax=tgay,tgaz=8,tgat=1;
+    if (buf1==0x00000200 && buf0==0x00000000) tga=i,tgax=tgay,tgaz=24,tgat=2;
+    if (buf1==0x00000300 && buf0==0x00000000) tga=i,tgax=tgay,tgaz=8,tgat=3;
     if (tga) {
       if (i-tga==8) tga=(buf1==0?tga:0),tgax=(bswap(buf0)&0xffff),tgay=(bswap(buf0)>>16);
       else if (i-tga==10) {
         if (tgaz==((buf0&0xFFFF)>>8) && tgax && tgay) {
-          if (tgaz==8) IMG_DET(IMAGE8,tga-7,18+256*3,tgax,tgay);
-          else if (tgaz==24) IMG_DET(IMAGE24,tga-7,18,tgax*3,tgay);
+          if (tgat==1) IMG_DET(IMAGE8,tga-7,18+256*3,tgax,tgay);
+          else if (tgat==2) IMG_DET(IMAGE24,tga-7,18,tgax*3,tgay);
+          else if (tgat==3) IMG_DET(IMAGE8,tga-7,18,tgax,tgay);
         }
         tga=0;
       }
