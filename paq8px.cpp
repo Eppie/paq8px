@@ -2805,13 +2805,13 @@ void wavModel(Mixer& m, int info) {
   static int pr[3][2], n[2], counter[2];
   static double F[49][49][2],L[49][49];
   int j,k,l,i=0;
-  double sum;
+  long double sum;
   const double a=0.996,a2=1/a;
   const int SC=0x20000;
   static SmallStationaryContextMap scm1(SC), scm2(SC), scm3(SC), scm4(SC), scm5(SC), scm6(SC), scm7(SC);
   static ContextMap cm(MEM*4, 10);
   static int bits, channels, w;
-  static int z1, z2, z3, z4, z5;
+  static int z1, z2, z3, z4, z5, z6;
 
   if (!bpos && !blpos) {
     bits=((info%4)/2)*8+8;
@@ -2823,7 +2823,7 @@ void wavModel(Mixer& m, int info) {
       for (k=0; k<=S+D; k++) for (l=0; l<=S+D; l++) F[k][l][j]=0, L[k][l]=0;
       F[1][0][j]=1;
       n[j]=counter[j]=pr[2][j]=pr[1][j]=pr[0][j]=0;
-      z1=z2=z3=z4=z5=0;
+      z1=z2=z3=z4=z5=z6=0;
     }
   }
   // Select previous samples and predicted sample as context
@@ -2832,14 +2832,14 @@ void wavModel(Mixer& m, int info) {
     const int msb=ch%(bits>>3);
     const int chn=ch/(bits>>3);
     if (!msb) {
-      z1=X1(1), z2=X1(2), z3=X1(3), z4=X1(4), z5=X1(5);
+      z1=X1(1), z2=X1(2), z3=X1(3), z4=X1(4), z5=X1(5); z6=X2(1)+X1(1)-X2(2);
       k=X1(1);
-      for (l=0; l<=min(S,counter[chn]-1); l++) F[0][l][chn]=F[0][l][chn]*a+X1(l+1)*k;
-      for (l=1; l<=min(D,counter[chn]); l++) F[0][l+S][chn]=F[0][l+S][chn]*a+X2(l+1)*k;
+      for (l=0; l<=min(S,counter[chn]-1); l++) { F[0][l][chn]*=a; F[0][l][chn]+=X1(l+1)*k; }
+      for (l=1; l<=min(D,counter[chn]); l++) { F[0][l+S][chn]*=a; F[0][l+S][chn]+=X2(l+1)*k; }
       if (channels==2) {
         k=X2(2);
-        for (l=1; l<=min(D,counter[chn]); l++) F[S+1][l+S][chn]=F[S+1][l+S][chn]*a+X2(l+1)*k;
-        for (l=1; l<=min(S,counter[chn]-1); l++) F[l][S+1][chn]=F[l][S+1][chn]*a+X1(l+1)*k;
+        for (l=1; l<=min(D,counter[chn]); l++) { F[S+1][l+S][chn]*=a; F[S+1][l+S][chn]+=X2(l+1)*k; }
+        for (l=1; l<=min(S,counter[chn]-1); l++) { F[l][S+1][chn]*=a; F[l][S+1][chn]+=X1(l+1)*k; }
       }
       if (++n[chn]==(256>>level)) {
         if (channels==1) for (k=1; k<=S+D; k++) for (l=k; l<=S+D; l++) F[k][l][chn]=(F[k-1][l-1][chn]-X1(k)*X1(l))*a2;
@@ -2847,12 +2847,13 @@ void wavModel(Mixer& m, int info) {
         for (i=1; i<=S+D; i++) {
            sum=F[i][i][chn];
            for (k=1; k<i; k++) sum-=L[i][k]*L[i][k];
-           if (sum>1/2) {
+           sum=1/sum;
+           if (sum>0) {
              L[i][i]=sqrt(sum);
              for (j=(i+1); j<=S+D; j++) {
                sum=F[i][j][chn];
                for (k=1; k<i; k++) sum-=L[j][k]*L[i][k];
-               L[j][i]=sum/L[i][i];
+               L[j][i]=sum*L[i][i];
              }
            } else break;
         }
@@ -2860,11 +2861,11 @@ void wavModel(Mixer& m, int info) {
           for (k=1; k<=S+D; k++) {
             F[k][0][chn]=F[0][k][chn];
             for (j=1; j<k; j++) F[k][0][chn]-=L[k][j]*F[j][0][chn];
-            F[k][0][chn]/=L[k][k];
+            F[k][0][chn]*=L[k][k];
           }
           for (k=S+D; k>0; k--) {
             for (j=k+1; j<=S+D; j++) F[k][0][chn]-=L[j][k]*F[j][0][chn];
-            F[k][0][chn]/=L[k][k];
+            F[k][0][chn]*=L[k][k];
           }
         }
         n[chn]=0;
@@ -2877,7 +2878,7 @@ void wavModel(Mixer& m, int info) {
       counter[chn]++;
     }
     const int y1=pr[0][chn], y2=pr[1][chn], y3=pr[2][chn];
-    int x1=buf(1), x2=buf(2);
+    int x1=buf(1), x2=buf(2), x3=buf(3);
     if (wmode==4 || wmode==5) x1^=128, x2^=128;
     if (bits==8) x1-=128, x2-=128;
     const int t=((bits==8) || ((!msb)^(wmode<6)));
@@ -2886,13 +2887,13 @@ void wavModel(Mixer& m, int info) {
       cm.set(hash(++i, y1&0xff));
       cm.set(hash(++i, y1&0xff, (z1-y2+z2-y3>>1)&0xff));
       cm.set(hash(++i, x1, y1&0xff));
-      cm.set(hash(++i, x1, x2>>2, y1&0xff));
+      cm.set(hash(++i, x1, x2>>3, x3));
       cm.set(hash(++i, y1+z1-y2&0xff));
       cm.set(hash(++i, x1));
       cm.set(hash(++i, x1, x2));
       cm.set(hash(++i, z1&0xff));
       cm.set(hash(++i, z1*2-z2&0xff));
-      cm.set(hash(++i, z1*3-z2*3+z3&0xff));
+      cm.set(hash(++i, z6&0xff));
     } else {
       cm.set(hash(++i, y1+z1-y2>>8));
       cm.set(hash(++i, y1>>8));
@@ -2900,7 +2901,7 @@ void wavModel(Mixer& m, int info) {
       cm.set(hash(++i, y1>>8, z1-y2+z2-y3>>9));
       cm.set(hash(++i, z1>>12));
       cm.set(hash(++i, x1));
-      cm.set(hash(++i, x1, x2));
+      cm.set(hash(++i, x1>>7, x2, x3>>7));
       cm.set(hash(++i, z1>>8));
       cm.set(hash(++i, z1*2-z2>>8));
       cm.set(hash(++i, z1*3-z2*3+z3>>8));
@@ -2923,7 +2924,6 @@ void wavModel(Mixer& m, int info) {
   scm6.mix(m);
   scm7.mix(m);
   cm.mix(m);
-  if (level>=4) recordModel(m);
   static int col=0;
   if (++col>=w*8) col=0;
   m.set(3, 8);
