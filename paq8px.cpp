@@ -2824,7 +2824,7 @@ void wavModel(Mixer& m, int info) {
     wmode=info;
     if (channels==1) S=48,D=0; else S=36,D=12;
     for (int j=0; j<channels; j++) {
-      for (k=0; k<=S+D; k++) for (l=k; l<=S+D; l++) F[k][l][j]=0, L[k][l]=0;
+      for (k=0; k<=S+D; k++) for (l=0; l<=S+D; l++) F[k][l][j]=0, L[k][l]=0;
       F[1][0][j]=1;
       n[j]=counter[j]=0;
     }
@@ -2849,7 +2849,7 @@ void wavModel(Mixer& m, int info) {
         for (i=1; i<=S+D; i++) {
            sum=F[i][i][chn];
            for (k=1; k<i; k++) sum-=L[i][k]*L[i][k];
-           if (sum>0) {
+           if (sum>1) {
              L[i][i]=sqrt(sum);
              for (j=(i+1); j<=S+D; j++) {
                sum=F[i][j][chn];
