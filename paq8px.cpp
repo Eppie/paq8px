@@ -3882,8 +3882,8 @@ Filetype detect(FILE* in, int n, Filetype type) {
 
     //TIFF support needed
     // Detect .tiff file
-    
-    
+
+
     // Detect EXE if the low order byte (little-endian) XX is more
     // recently seen (and within 4K) if a relative to absolute address
     // conversion is done in the context CALL/JMP (E8/E9) XX xx xx 00/FF
@@ -3895,7 +3895,7 @@ Filetype detect(FILE* in, int n, Filetype type) {
       int a=(buf0>>24)+i&0xff;  // absolute address low 8 bits
       int rdist=i-relpos[r];
       int adist=i-abspos[a];
-      if (adist<rdist && adist<0x1000 && abspos[a]>5) {
+      if (adist<rdist && adist<0x800 && abspos[a]>5) {
         e8e9last=i;
         ++e8e9count;
         if (e8e9pos==0 || e8e9pos>abspos[a]) e8e9pos=abspos[a];
@@ -3948,9 +3948,9 @@ void encode_exe(FILE* in, FILE* out, int len, int begin) {
         a<<=7;
         a>>=7;
         blk[i]=a>>24;
-        blk[i-1]=a>>16;
+        blk[i-1]=a;
         blk[i-2]=a>>8;
-        blk[i-3]=a;
+        blk[i-3]=a>>16;
       }
     }
     fwrite(&blk[0], 1, bytesRead, out);
@@ -3988,7 +3988,7 @@ int decode_exe(Encoder& en) {
   // E8E9 transform: E8/E9 xx xx xx 00/FF -> subtract location from x
   if (q==5 && (c[4]==0xe8||c[4]==0xe9) && (c[0]==0||c[0]==0xff)
       && ((offset-1^offset-5)&-BLOCK)==0) { // not crossing block boundary
-    int a=(c[3]|c[2]<<8|c[1]<<16|c[0]<<24)-offset-begin;
+    int a=(c[1]|c[2]<<8|c[3]<<16|c[0]<<24)-offset-begin;
     a<<=7;
     a>>=7;
     c[3]=a;
