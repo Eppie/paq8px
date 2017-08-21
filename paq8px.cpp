@@ -2786,16 +2786,17 @@ int jpegModel(Mixer& m) {
 static int S,D;
 static int wmode;
 
-inline int s2(int i) {
-  return int(short(buf(i)+256*buf(i-1)));
-}
+inline int s2(int i) { return int(short(buf(i)+256*buf(i-1))); }
+inline int t2(int i) { return int(short(buf(i-1)+256*buf(i))); }
 
 inline int X1(int i) {
   if (wmode==3) return s2(i<<2);
   else if (wmode==2) return s2(i<<1);
   else if (wmode==1) return buf(i<<1)-128;
   else if (wmode==0) return buf(i)-128;
-  else return (buf(i)^128)-128;
+  else if (wmode==4) return (buf(i)^128)-128;
+  else if (wmode==7) return t2(i<<2);
+  else return t2(i<<1);;
 }
 
 inline int X2(int i) {
@@ -2803,7 +2804,9 @@ inline int X2(int i) {
   else if (wmode==2) return s2(i+S<<1);
   else if (wmode==1) return buf((i<<1)-1)-128;
   else if (wmode==0) return buf(i+S)-128;
-  else return (buf(i+S)^128)-128;
+  else if (wmode==4) return (buf(i+S)^128)-128;
+  else if (wmode==7) return t2((i<<2)-2);
+  else return t2(i+S<<1);
 }
 
 void wavModel(Mixer& m, int info) {
@@ -2817,7 +2820,7 @@ void wavModel(Mixer& m, int info) {
   static ContextMap cm(MEM*4, 10);
   static int bits, channels, w;
 
-  if (blpos==0) {
+  if (!bpos && !blpos) {
     bits=((info%4)/2)*8+8;
     channels=info%2+1;
     w=channels*(bits>>3);
@@ -2826,11 +2829,11 @@ void wavModel(Mixer& m, int info) {
     for (int j=0; j<channels; j++) {
       for (k=0; k<=S+D; k++) for (l=0; l<=S+D; l++) F[k][l][j]=0, L[k][l]=0;
       F[1][0][j]=1;
-      n[j]=counter[j]=0;
+      n[j]=counter[j]=pr[2][j]=pr[1][j]=pr[0][j]=0;
     }
   }
   // Select previous samples and predicted sample as context
-  if (!bpos) {
+  if (!bpos && blpos>=w) {
     const int ch=blpos%w;
     const int msb=ch%(bits>>3);
     const int chn=ch/(bits>>3);
@@ -2879,9 +2882,12 @@ void wavModel(Mixer& m, int info) {
       counter[chn]++;
     }
     const int x1=buf(1)^(wmode==4?128:0)-128, x2=buf(2)^(wmode==4?128:0)-128, y1=pr[0][chn], y2=pr[1][chn], y3=pr[2][chn];
-    const int t=(msb!=0), z1=s2(w+t), z2=s2(w*2+t), z3=s2(w*3+t), z4=s2(w*4+t), z5=s2(w*5+t);
+    int t, z1, z2, z3, z4, z5;
+    if (bits==16 && wmode<6) t=(msb!=0), z1=s2(w+t), z2=s2(w*2+t), z3=s2(w*3+t), z4=s2(w*4+t), z5=s2(w*5+t);
+    else if (bits==8) t=1, z1=buf(w), z2=buf(w*2), z3=buf(w*3), z4=buf(w*4), z5=buf(w*5);
+    else t=(msb==0), z1=t2(w+(1-t)), z2=t2(w*2+(1-t)), z3=t2(w*3+(1-t)), z4=t2(w*4+(1-t)), z5=t2(w*5+(1-t));
     i=ch<<4;
-    if (!msb) {
+    if ((msb)^(wmode<6)) {
       cm.set(hash(++i, y1&0xff));
       cm.set(hash(++i, y1&0xff, (z1-y2+z2-y3>>1)&0xff));
       cm.set(hash(++i, x1, y1&0xff));
@@ -3461,10 +3467,11 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
 
   int soi=0, sof=0, sos=0, app=0;  // For JPEG detection - position where found
   int wavi=0,wavsize,wavch,wavbps,wavm;  // For WAVE detection
+  int aiff=0,aiffm;  // For AIFF detection
+  int s3mi=0,s3mno,s3mni;  // For S3M detection
   int bmp=0,bsize,imgbpp,bmpx,bmpy,bmpof;  // For BMP detection
   int rgbi=0,rgbx,rgby;  // For RGB detection
   int tga=0,tgax,tgay,tgaz,tgat;  // For TGA detection
-  int s3mi=0,s3mno,s3mni;  // For S3M detection
   int pgm=0,pgmcomment=0,pgmw=0,pgmh=0,pgm_ptr=0,pgmc=0,pgmn=0;  // For PBM, PGM, PPM detection
   char pgm_buf[32];
 
@@ -3514,6 +3521,20 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
         if ((wavch==1 || wavch==2) && (wavbps==8 || wavbps==16) && wavd>0 && wavsize>=wavd+36
            && wavd%((wavbps/8)*wavch)==0) AUD_DET(AUDIO,wavi-3,44+wavm,wavd,wavch+wavbps/4-3);
         wavi=0;
+      }
+    }
+
+    // Detect .aiff file header
+    if (buf0==0x464f524d) aiff=i; // FORM
+    if (aiff) {
+      const int p=i-aiff;
+      if (p==12 && (buf1!=0x41494646 || buf0!=0x434f4d4d)) aiff=0; // AIFF COMM
+      else if (p==24) {
+        const int bits=buf0&0xffff, chn=buf1>>16;
+        if ((bits==8 || bits==16) && (chn==1 || chn==2)) aiffm=(bits==8?chn-1:chn+5); else aiff=0;
+      } else if (p==42) {
+        if (buf1==0x53534e44) AUD_DET(AUDIO,aiff-3,54,buf0-8,aiffm);
+        aiff=0;
       }
     }
 
