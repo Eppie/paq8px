@@ -1,4 +1,4 @@
-/* paq8px file compressor/archiver.  Release by Jan Ondrus, Apr. 25, 2009
+/* paq8px file compressor/archiver.  Release by Jan Ondrus, May. 09, 2009
 
     Copyright (C) 2008 Matt Mahoney, Serge Osnach, Alexander Ratushnyak,
     Bill Pettis, Przemyslaw Skibinski, Matthew Fite, wowtiger, Andrew Paterson,
@@ -3488,7 +3488,7 @@ Filetype detect(FILE* in, int n, Filetype type, int &imgw) {
   int e8e9pos=0;    // offset of first CALL or JMP instruction
   int e8e9last=0;   // offset of most recent CALL or JMP
   // For BMP detection
-  int bmp=0,bsize=0,imgbpp=0,bmpx=0,bmpy=0,bmpimgoff=0,imgcomp=-1;
+  int bmp=0,bsize=0,imgbpp=0,bmpx=0,bmpy=0,bmpimgoff=0;
   // For PBM, PGM, PPM detection
   int pgm=0,pgmcomment=0,pgmw=0,pgmh=0,pgm_ptr=0,pgmc=0,pgmn=0;
   char pgm_buf[32];
@@ -3499,7 +3499,7 @@ Filetype detect(FILE* in, int n, Filetype type, int &imgw) {
   // For .TIFF detection
   int tiff=0;
   // For .TGA detection
-  int tga=0,tgax=0,tgay=0,tgaz=0,tgapalette,tgapallen=0,tgaimgtype=0;
+  int tga=0,tgax=0,tgay=0,tgaz=0;
 
   // For image detection
   static int imgh=0,imgd=0;  // image header/data size in bytes
@@ -3536,26 +3536,28 @@ Filetype detect(FILE* in, int n, Filetype type, int &imgw) {
       return DEFAULT;
 
     // Detect .bmp image
-    if ((buf0&0xFFFF)==16973) imgbpp=bsize=0,imgcomp=-1,bmp=i;  //possible 'BM'
+    if ((buf0&0xffff)==16973) imgbpp=bsize=0,bmp=i;  //possible 'BM'
     if (bmp) {
       const int p=i-bmp;
       if (p==4) bsize=bswap(buf0); //image size
       else if (p==12) bmpimgoff=bswap(buf0);
       else if (p==16 && buf0!=0x28000000) bmp=0; //windows bmp?
       else if (p==20) bmpx=bswap(buf0),bmp=((bmpx==0||bmpx>0x30000)?0:bmp); //width
-	  else if (p==24) bmpy=abs((int)bswap(buf0)),bmp=((bmpy==0||bmpy>0x10000)?0:bmp); //height
+      else if (p==24) bmpy=abs((int)bswap(buf0)),bmp=((bmpy==0||bmpy>0x10000)?0:bmp); //height
       else if (p==27) imgbpp=c,bmp=((imgbpp!=1 && imgbpp!=8 && imgbpp!=24)?0:bmp);
-      else if (p==31) imgcomp=buf0,bmp=(imgcomp!=0?0:bmp);
-      if (imgbpp!=0 && imgcomp==0) {
-        if (imgbpp==1) IMG_DET(IMAGE1,bmp-1,bmpimgoff,(((bmpx-1)>>5)+1)*4,bmpy);
-        else if (imgbpp==8) IMG_DET(IMAGE8,bmp-1,bmpimgoff,bmpx+3&-4,bmpy);
-        else if (imgbpp==24) IMG_DET(IMAGE24,bmp-1,bmpimgoff,(bmpx*3)+3&-4,bmpy);
+      else if (p==31) {
+        if (imgbpp!=0 && buf0==0) {
+          if (imgbpp==1) IMG_DET(IMAGE1,bmp-1,bmpimgoff,(((bmpx-1)>>5)+1)*4,bmpy);
+          else if (imgbpp==8) IMG_DET(IMAGE8,bmp-1,bmpimgoff,bmpx+3&-4,bmpy);
+          else if (imgbpp==24) IMG_DET(IMAGE24,bmp-1,bmpimgoff,(bmpx*3)+3&-4,bmpy);
+        }
+        bmp=0;
       }
     }
 
     // Detect .pbm .pgm .ppm image
-    if ((buf0&0xFFF0FF)==0x50300A) {
-      pgmn=(buf0&0xF00)>>8;
+    if ((buf0&0xfff0ff)==0x50300a) {
+      pgmn=(buf0&0xf00)>>8;
       if (pgmn>=4 && pgmn <=6) pgm=i,pgm_ptr=pgmw=pgmh=pgmc=pgmcomment=0;
     }
     if (pgm) {
@@ -3581,16 +3583,19 @@ Filetype detect(FILE* in, int n, Filetype type, int &imgw) {
     }
 
     // Detect .rgb image
-    if ((buf0&0xFFFF)==0x01DA) rgbi=i,rgbx=rgby=0;
+    if ((buf0&0xffff)==0x01da) rgbi=i,rgbx=rgby=0;
     if (rgbi) {
       const int p=i-rgbi;
       if (p==1 && c!=0) rgbi=0;
       else if (p==2 && c!=1) rgbi=0;
-      else if (p==4 && (buf0&0xFFFF)!=1 && (buf0&0xFFFF)!=2 && (buf0&0xFFFF)!=3) rgbi=0;
+      else if (p==4 && (buf0&0xffff)!=1 && (buf0&0xffff)!=2 && (buf0&0xffff)!=3) rgbi=0;
       else if (p==6) rgbx=buf0&0xffff,rgbi=(rgbx==0?0:rgbi);
       else if (p==8) rgby=buf0&0xffff,rgbi=(rgby==0?0:rgbi);
-      else if (p==10) rgbz=buf0&0xffff,rgbi=((rgbz!=1&&rgbz!=3&&rgbz!=4)?0:rgbi);
-      if (rgbx && rgby && rgbz) IMG_DET(IMAGE8,rgbi-1,512,rgbx,rgby*rgbz);
+      else if (p==10) {
+        int z=buf0&0xffff;
+        if (rgbx && rgby && (z==1 || z==3 || z==4)) IMG_DET(IMAGE8,rgbi-1,512,rgbx,rgby*z);
+        rgbi=0;
+      }
     }
 
     // Detect .tif file header (8/24 bit color, not compressed).
@@ -3603,41 +3608,38 @@ Filetype detect(FILE* in, int n, Filetype type, int &imgw) {
         // read directory
         int dirsize=getc(in);
         int tifx=0,tify=0,tifz=0,tifzb=0,tifc=0,tifofs=0,tifofval=0,b[12];
-        if (getc(in)>0) tiff=0; 
-		else {
+        if (getc(in)>0) tiff=0;
+        else {
           for (int i=0; i<dirsize; i++) {
             for (int j=0; j<12; j++) b[j]=getc(in);
             if (b[11]==EOF) break;
             int tag=b[0]+(b[1]<<8);
             int tagfmt=b[2]+(b[3]<<8);
             int taglen=b[4]+(b[5]<<8)+(b[6]<<16)+(b[7]<<24);
-			int tagval=b[8]+(b[9]<<8)+(b[10]<<16)+(b[11]<<24);
+            int tagval=b[8]+(b[9]<<8)+(b[10]<<16)+(b[11]<<24);
             if (tagfmt==3||tagfmt==4) {
               if (tag==256) tifx=tagval;
               else if (tag==257) tify=tagval;
-			  else if (tag==258) tifzb=taglen==1?tagval:8; // bits per component
+              else if (tag==258) tifzb=taglen==1?tagval:8; // bits per component
               else if (tag==259) tifc=tagval; // 1 = no compression
-			  else if (tag==273) {
-				  if (tagfmt==3) tiff=0;            // stop if offsets stored in 16-bit
-				  else if (taglen>1) tifofs=tagval; // read later
-				  else tifofval=tagval;             // stored by value
-			  }
+              else if (tag==273) {
+                if (tagfmt==3) tiff=0;   // stop if offsets stored in 16-bit
+                else tifofs=tagval,tifofval=(taglen<=1);
+              }
               else if (tag==277) tifz=tagval; // components per pixel
             }
           }
-		}
-        if (tiff && tifx && tify && tifzb && (tifz==1 || tifz==3) && (tifc==1) && (tifofval || (tifofs && tifofs+tiff<n))) {
-		  if (!tifofval) {
+        }
+        if (tiff && tifx && tify && tifzb && (tifz==1 || tifz==3) && (tifc==1) && (tifofs && tifofs+tiff<n)) {
+          if (!tifofval) {
             fseek(in, start+tiff+tifofs-3, SEEK_SET);
             for (int j=0; j<4; j++) b[j]=getc(in);
-			tifofval=b[0]+(b[1]<<8)+(b[2]<<16)+(b[3]<<24);
-		  }
-          if (tifofval && tifofval<65536 && tifofval+tiff<n) {
-			if (tifz==1) {
-				if (tifzb==1) IMG_DET(IMAGE1,tiff-3,tifofval,((tifx-1)>>3)+1,tify);
-				else if (tifzb==8) IMG_DET(IMAGE8,tiff-3,tifofval,tifx,tify);
-			}
-			else if (tifz==3 && tifzb==8) IMG_DET(IMAGE24,tiff-3,tifofval,tifx*3,tify);
+            tifofs=b[0]+(b[1]<<8)+(b[2]<<16)+(b[3]<<24);
+          }
+          if (tifofs && tifofs<65536 && tifofs+tiff<n) {
+            if (tifz==1 && tifzb==1) IMG_DET(IMAGE1,tiff-3,tifofs,((tifx-1)>>3)+1,tify);
+            else if (tifz==1 && tifzb==8) IMG_DET(IMAGE8,tiff-3,tifofs,tifx,tify);
+            else if (tifz==3 && tifzb==8) IMG_DET(IMAGE24,tiff-3,tifofs,tifx*3,tify);
           }
         }
         tiff=0;
@@ -3645,26 +3647,19 @@ Filetype detect(FILE* in, int n, Filetype type, int &imgw) {
       }
     }
 
-	// Detect .tga image
-	const char *cbuf = (char*)&buf0;
-	if (cbuf[3]==0 && (cbuf[2]==0 || cbuf[2]==1) && (cbuf[1]>=1 && 
-			cbuf[1]<=3) && cbuf[0]==0) tga=i,tgapalette=buf0>>24,tgaimgtype=buf0>>16;
-	if (tga) {
-		const int p=i-tga;
-		if (p==4) tga=(buf0&0xFF000000)==0?tga:0;
-		else if (p==5) tgapallen=(bswap(buf0)&0xFFFF);
-		else if (p==8) tga=(buf0&0xFFFF0000)==0?tga:0;
-		else if (p==10) tga=(buf0&0xFFFF0000)==0?tga:0;
-		else if (p==12) tgax=(bswap(buf0)&0xFFFF);
-		else if (p==14) tgay=(bswap(buf0)&0xFFFF);
-		else if (p==16) tgaz=(bswap(buf0)&0xFF);
-		if (tgax && tgay && tgaz) {
-			if (tgaz==8) IMG_DET(IMAGE8,tga-3,18+tgapallen,tgax,tgay);
-			if (tgaz==24) IMG_DET(IMAGE24,tga-3,18+tgapallen,tgax*3,tgay);
-			tga=0;
-		}
-		if (p>18) tga=0;
-	}
+    // Detect .tga image (8-bit 256 colors or 24-bit uncompressed)
+    if (buf1==0x00000200 && buf0==0x00000000) tga=i,tgax=tgay=0,tgaz=24;
+    if (buf1==0x00010100 && buf0==0x00000118) tga=i,tgax=tgay=0,tgaz=8;
+    if (tga) {
+      if (i-tga==8) tga=(buf1==0?tga:0),tgax=(bswap(buf0)&0xffff),tgay=(bswap(buf0)>>16);
+      else if (i-tga==10) {
+        if (tgaz==((buf0&0xFFFF)>>8) && tgax && tgay) {
+          if (tgaz==8) IMG_DET(IMAGE8,tga-7,18+256*3,tgax,tgay);
+          else if (tgaz==24) IMG_DET(IMAGE24,tga-7,18,tgax*3,tgay);
+        }
+        tga=0;
+      }
+    }
 
     // Detect EXE if the low order byte (little-endian) XX is more
     // recently seen (and within 4K) if a relative to absolute address
