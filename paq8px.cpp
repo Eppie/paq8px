@@ -1,8 +1,9 @@
-/* paq8px file compressor/archiver.  Release by Jan Ondrus, May. 10, 2009
+/* paq8px file compressor/archiver.  Release by Jan Ondrus, May. 30, 2009
 
     Copyright (C) 2008 Matt Mahoney, Serge Osnach, Alexander Ratushnyak,
     Bill Pettis, Przemyslaw Skibinski, Matthew Fite, wowtiger, Andrew Paterson,
-    Jan Ondrus, Andreas Morphis, Pavel L. Holoborodko, KZ., Simon Berger
+    Jan Ondrus, Andreas Morphis, Pavel L. Holoborodko, KZ., Simon Berger,
+    Neill Corlett
 
     LICENSE
 
@@ -3163,7 +3164,7 @@ void nestModel(Mixer& m)
 //////////////////////////// contextModel //////////////////////
 
 
-typedef enum {DEFAULT, JPEG, HDR, IMAGE1, IMAGE8, IMAGE24, AUDIO, EXE} Filetype;
+typedef enum {DEFAULT, JPEG, HDR, IMAGE1, IMAGE8, IMAGE24, AUDIO, EXE, CD} Filetype;
 
 
 // This combines all the context models with a Mixer.
@@ -3465,6 +3466,79 @@ fseek(in, start+(start_pos), SEEK_SET),HDR
 deth=(header_len),detd=(data_len),info=(wmode),\
 fseek(in, start+(start_pos), SEEK_SET),HDR
 
+
+// Function ecc_compute(), edc_compute() and eccedc_init() taken from 
+// ** UNECM - Decoder for ECM (Error Code Modeler) format.
+// ** Version 1.0
+// ** Copyright (C) 2002 Neill Corlett
+
+/* LUTs used for computing ECC/EDC */
+static U8 ecc_f_lut[256];
+static U8 ecc_b_lut[256];
+static U32 edc_lut[256];
+static int luts_init=0;
+
+void eccedc_init(void) {
+  if (luts_init) return;
+  U32 i, j, edc;
+  for(i = 0; i < 256; i++) {
+    j = (i << 1) ^ (i & 0x80 ? 0x11D : 0);
+    ecc_f_lut[i] = j;
+    ecc_b_lut[i ^ j] = i;
+    edc = i;
+    for(j = 0; j < 8; j++) edc = (edc >> 1) ^ (edc & 1 ? 0xD8018001 : 0);
+    edc_lut[i] = edc;
+  }
+  luts_init=1;
+}
+
+void ecc_compute(U8 *src, U32 major_count, U32 minor_count, U32 major_mult, U32 minor_inc, U8 *dest) {
+  U32 size = major_count * minor_count;
+  U32 major, minor;
+  for(major = 0; major < major_count; major++) {
+    U32 index = (major >> 1) * major_mult + (major & 1);
+    U8 ecc_a = 0;
+    U8 ecc_b = 0;
+    for(minor = 0; minor < minor_count; minor++) {
+      U8 temp = src[index];
+      index += minor_inc;
+      if(index >= size) index -= size;
+      ecc_a ^= temp;
+      ecc_b ^= temp;
+      ecc_a = ecc_f_lut[ecc_a];
+    }
+    ecc_a = ecc_b_lut[ecc_f_lut[ecc_a] ^ ecc_b];
+    dest[major              ] = ecc_a;
+    dest[major + major_count] = ecc_a ^ ecc_b;
+  }
+}
+
+U32 edc_compute(const U8  *src, int size) {
+  U32 edc = 0;
+  while(size--) edc = (edc >> 8) ^ edc_lut[(edc ^ (*src++)) & 0xFF];
+  return edc;
+}
+
+int expand_cd_sector(U8 *data, int mode) {
+  U8 d2[2352];
+  eccedc_init();
+  d2[0]=d2[11]=0;
+  for (int i=1; i<11; i++) d2[i]=255;
+  for (int i=12; i<15; i++) d2[i]=data[i];
+  d2[15]=1;
+  for (int i=16; i<2064; i++) d2[i]=data[i];
+  U32 edc=edc_compute(d2, 2064);
+  d2[2064]=(edc>>0)&0xff;
+  d2[2065]=(edc>>8)&0xff;
+  d2[2066]=(edc>>16)&0xff;
+  d2[2067]=(edc>>24)&0xff;
+  for(int i=2068; i<2076; i++) d2[i] = 0;
+  ecc_compute(d2+12, 86, 24,  2, 86, d2+2076);
+  ecc_compute(d2+12, 52, 43, 86, 88, d2+2248);
+  for (int i=0; i<2352; i++) if (mode && d2[i]!=data[i]) return 1; else data[i]=d2[i];
+  return 0;
+}
+
 // Detect EXE or JPEG data
 Filetype detect(FILE* in, int n, Filetype type, int &info) {
   U32 buf1=0, buf0=0;  // last 8 bytes
@@ -3486,6 +3560,8 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
   int tga=0,tgax,tgay,tgaz,tgat;  // For TGA detection
   int pgm=0,pgmcomment=0,pgmw=0,pgmh=0,pgm_ptr=0,pgmc=0,pgmn=0;  // For PBM, PGM, PPM detection
   char pgm_buf[32];
+  int cdi=0;  // For CD sectors detection
+  U8 data[2352];
 
   // For image detection
   static int deth=0,detd=0;  // detected header/data size in bytes
@@ -3498,6 +3574,24 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
     if (c==EOF) return (Filetype)(-1);
     buf1=buf1<<8|buf0>>24;
     buf0=buf0<<8|c;
+
+    // CD sectors detection (mode 1 - 2352 bytes)
+    if (buf1==0x00ffffff && buf0==0xffffffff && !cdi) cdi=i;
+    if (cdi && i>cdi) {
+      const int p=(i-cdi)%2352;      
+      if (p==8 && (buf1!=0xffffff00 || (buf0&0xff)!=0x01)) cdi=0;
+      else if (p==2068 && (buf1!=0 || buf0!=0)) cdi=0;
+      else if (p==0) {
+        long savedpos=ftell(in);
+        fseek(in, start+i-2352-7, SEEK_SET);
+        fread(data, 1, 2352, in);
+        fseek(in, savedpos, SEEK_SET);
+        if (!expand_cd_sector(data, 1)) {
+          if (type!=CD) return fseek(in, start+cdi-7, SEEK_SET), CD;
+        } else cdi=0;
+      }
+      if (!cdi && type==CD) return fseek(in, start+(p==0?i-2352:i-p)-7, SEEK_SET), DEFAULT;
+    }
 
     // Detect JPEG by code SOI APPx (FF D8 FF Ex) followed by
     // SOF0 (FF C0 xx xx 08) and SOS (FF DA) within a reasonable distance.
@@ -3753,6 +3847,41 @@ int decode_default(Encoder& en) {
   return en.decompress();
 }
 
+
+void encode_cd(FILE* in, FILE* out, int len) {
+  const int BLOCK=2352;
+  Array<U8> blk(BLOCK);
+  for (int offset=0; offset<len; offset+=BLOCK) {
+    if (offset+BLOCK > len) {
+      fread(&blk[0], 1, len-offset, in);
+      fwrite(&blk[0], 1, len-offset, out);
+    } else {
+      fread(&blk[0], 1, BLOCK, in);
+      fwrite(&blk[12], 1, 3, out);
+      fwrite(&blk[16], 1, 2048, out);
+    }
+  }
+}
+
+int decode_cd(Encoder& en, int size) {
+  const int BLOCK=2352;
+  static U8 blk[BLOCK];
+  static int state=0, size2=0;
+  if (size2==0) size2=size;
+  size2--;
+  state%=BLOCK;
+  if (state==0 && size2>=BLOCK-1) {
+    blk[12]=en.decompress();
+    blk[13]=en.decompress();
+    blk[14]=en.decompress();
+    for (int i=0;i<2048;i++) blk[16+i]=en.decompress();
+    expand_cd_sector(blk, 0);
+  } else if (state==0) {
+    return en.decompress();
+  }
+  return blk[state++];
+}
+
 // EXE transform: <encoded-size> <begin> <block>...
 // Encoded-size is 4 bytes, MSB first.
 // begin is the offset of the start of the input file, 4 bytes, MSB first.
@@ -3848,6 +3977,7 @@ int decode(Encoder& en) {
   --len;
   switch (type) {
     case EXE:  return decode_exe(en, size);
+    case CD:  return decode_cd(en, size);
     default:   return decode_default(en);
   }
 }
@@ -3884,8 +4014,8 @@ void direct_encode_block(Filetype type, int begin, int len, FILE* in, Encoder &e
 // <type> <size> and call encode_X to convert to type X.
 // Test transform and compress.
 void compress(const char* filename, long filesize, Encoder& en) {
-  static const char* typenames[8]={"default", "jpeg", "hdr",
-    "1-bit-image", "8-bit-image", "24-bit-image", "audio", "exe"};
+  static const char* typenames[9]={"default", "jpeg", "hdr",
+    "1-bit-image", "8-bit-image", "24-bit-image", "audio", "exe", "cd"};
   static const char* audiotypes[4]={"8-bit mono", "8-bit stereo", "16-bit mono",
     "16-bit stereo"};
   assert(en.getMode()==COMPRESS);
@@ -3913,11 +4043,12 @@ void compress(const char* filename, long filesize, Encoder& en) {
       printf("%3d | %12s | %d bytes [from %d to %d]",blnum++,typenames[type],len,begin,end-1);
       if (type==AUDIO) printf(" (%s)", audiotypes[info%4]);
       else if (type==IMAGE1 || type==IMAGE8 || type==IMAGE24) printf(" (width: %d)", info);
-      if (type==EXE) {
+      if (type==EXE || type==CD) {
         tmp=tmpfile();  // temporary encoded file
         if (!tmp) perror("tmpfile"), quit();
         fprintf(tmp, "%c%c%c%c%c",type, len>>24, len>>16, len>>8, len);
-        encode_exe(in, tmp, len, begin);
+        if (type==EXE) encode_exe(in, tmp, len, begin);
+        else if (type==CD) encode_cd(in, tmp, len);
 
         rewind(tmp);
         en.setFile(tmp);
