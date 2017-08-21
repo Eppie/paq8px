@@ -3606,7 +3606,7 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
     buf0=buf0<<8|c;
 
     // CD sectors detection (mode 1 and mode 2 form 1+2 - 2352 bytes)
-    if (buf1==0x00ffffff && buf0==0xffffffff && !cdi) cdi=i,cda=-1;
+    if (buf1==0x00ffffff && buf0==0xffffffff && !cdi) cdi=i,cda=-1,cdm=0;
     if (cdi && i>cdi) {
       const int p=(i-cdi)%2352;
       if (p==8 && (buf1!=0xffffff00 || ((buf0&0xff)!=1 && (buf0&0xff)!=2))) cdi=0;
