@@ -28,7 +28,7 @@ The output will go in the same folder as the input.
 
 While paq8px is working, a command window will appear and report
 progress.  When it is done you can close the window by pressing
-ENTER or clicking [X]. 
+ENTER or clicking [X].
 
 
 COMMAND LINE INTERFACE
@@ -257,8 +257,8 @@ There are several types of bit history states:
       0 for n >= 16.
 
   The primaty output is t_i := stretch(sm(n0,n1,h)), where sm(.) is
-  a stationary map with K = 1/256, initiaized to 
-  sm(n0,n1,h) = (n1+(1/64))/(n+2/64).  Four additional inputs are also 
+  a stationary map with K = 1/256, initialized to
+  sm(n0,n1,h) = (n1+(1/64))/(n+2/64).  Four additional inputs are also
   be computed to improve compression slightly:
 
     p1_i = sm(n0,n1,h)
@@ -406,7 +406,7 @@ ARCHITECTURE
 
 The context models are mixed by several of several hundred neural networks
 selected by a low-order context.  The outputs of these networks are
-combined using a second neural network, then fed through several stages of 
+combined using a second neural network, then fed through several stages of
 adaptive probability maps (APM) before arithmetic coding.
 
 For images, only one neural network is used and its context is fixed.
@@ -477,7 +477,7 @@ organized into 64-byte buckets on cache line boundaries.  Each bucket
 contains 7 x 7 bit histories, 7 16-bit checksums, and a 2 element LRU
 queue packed into one byte.  Each 7 byte element represents 7 histories
 for a context ending on a 3-bit boundary plus 0-2 more bits.  One
-element (for bits 0-1, which have 4 unused bytes) also contains a run model 
+element (for bits 0-1, which have 4 unused bytes) also contains a run model
 consisting of the last byte seen and a count (as 1 byte each).
 
 Run models use 4 byte hash elements consisting of a 2 byte checksum, a
@@ -522,11 +522,11 @@ in Array was fixed that caused the program to silently crash upon exit.
 
 DIFFERENCES FROM PAQ8J
 
-1) Slightly improved sparse model. 
+1) Slightly improved sparse model.
 2) Added new family of sparse contexts. Each byte mapped to 3-bit value, where
 different values corresponds to different byte classes. For example, input
-byte 0x00 transformed into 0, all bytes that less then 16 -- into 5, all 
-punctuation marks (ispunct(c)!=0) -- into 2 etc. Then this flags from 11 
+byte 0x00 transformed into 0, all bytes that less then 16 -- into 5, all
+punctuation marks (ispunct(c)!=0) -- into 2 etc. Then this flags from 11
 previous bytes combined into 32-bit pseudo-context.
 
 All this improvements gives only 62 byte on BOOK1, but on binaries archive size
@@ -535,13 +535,13 @@ reduced on 1-2%.
 DIFFERENCES FROM PAQ8JA
 
 Introduced distance model. Distance model uses distance to last occurence
-of some anchor char ( 0x00, space, newline, 0xff ), combined with previous
+of some anchor char (0x00, space, newline, 0xff), combined with previous
 charactes as context. This slightly improves compression of files with
 variable-width record data.
 
 DIFFERENCES FROM PAQ8JB
 
-Restored recordModel(), broken in paq8hp*. Slightly tuned indirectModel(). 
+Restored recordModel(), broken in paq8hp*. Slightly tuned indirectModel().
 
 DIFFERENCES FROM PAQ8JC
 
@@ -575,7 +575,7 @@ Added PGM (grayscale image) model form PAQ8I.
 Added grayscale BMP model to PGM model.
 Ver. 2 can be compiled using either old or new "for" loop scoping rules.
 Added APM and StateMap from LPAQ1
-Code optimizations from Enrico Zeidler 
+Code optimizations from Enrico Zeidler
 Detection of BMP 4,8,24 bit and PGM 8 bit images before compress
 On non BMP,PGM,JPEG data mem is lower
 Fixed bug in BMP 8-bit detection in other files like .exe
@@ -815,7 +815,7 @@ public:
   Random(): table(64) {
     table[0]=123456789;
     table[1]=987654321;
-    for(int j=0; j<62; j++) table[j+2]=table[j+1]*11+table[j]*23/16;
+    for (int j=0; j<62; j++) table[j+2]=table[j+1]*11+table[j]*23/16;
     i=0;
   }
   U32 operator()() {
@@ -827,7 +827,7 @@ public:
 
 // Buf(n) buf; creates an array of n bytes (must be a power of 2).
 // buf[i] returns a reference to the i'th byte with wrap (no out of bounds).
-// buf(i) returns i'th byte back from pos (i > 0) 
+// buf(i) returns i'th byte back from pos (i > 0)
 // buf.size() returns n.
 
 int pos;  // Number of input bytes in buf (not wrapped)
@@ -1108,7 +1108,7 @@ StateTable::StateTable(): ns(1024) {
           ns[state*4+3]=y;
         }
           // uncomment to print table above
-//        printf("{%3d,%3d,%2d,%2d},", ns[state*4], ns[state*4+1], 
+//        printf("{%3d,%3d,%2d,%2d},", ns[state*4], ns[state*4+1],
 //          ns[state*4+2], ns[state*4+3]);
 //        if (state%4==3) printf(" // %d-%d\n  ", state-3, state);
         assert(state>=0 && state<256);
@@ -1292,9 +1292,9 @@ Mixer::Mixer(int n, int m, int s, int w):
     cxt(S), ncxt(0), base(0), nx(0), pr(S), mp(0) {
   assert(n>0 && N>0 && (N&7)==0 && M>0);
   int i;
-  for ( i=0; i<S; ++i)
+  for (i=0; i<S; ++i)
     pr[i]=2048;
-  for ( i=0; i<N*M; ++i)
+  for (i=0; i<N*M; ++i)
     wx[i]=w;
   if (S>1) mp=new Mixer(S, 1, 1, 0x7fff);
 }
@@ -1403,7 +1403,7 @@ public:
     cx=cx*24+(pr>>12);
     assert(cx>=0 && cx<N-1);
     cxt=cx+(wt>>11);
-	pr=(t[cx]>>13)*(0x1000-wt)+(t[cx+1]>>13)*wt>>19;
+    pr=(t[cx]>>13)*(0x1000-wt)+(t[cx+1]>>13)*wt>>19;
     return pr;
   }
 };
@@ -1434,7 +1434,7 @@ inline U32 hash(U32 a, U32 b, U32 c=0xffffffff, U32 d=0xffffffff,
 //   reserved for a checksum to detect collisions.  The remaining
 //   B-1 bytes are values, prioritized by the first value.  This
 //   byte is 0 to mark an unused element.
-//   
+//
 // bh[i] returns a pointer to the i'th element, such that
 //   bh[i][0] is a checksum of i, bh[i][1] is the priority, and
 //   bh[i][2..B-1] are other values (0-255).
@@ -1498,7 +1498,7 @@ inline  U8* BH<B>::operator[](U32 i) {
 //   if context cx is found, else 0.  Then it extends all the contexts with
 //   global bit y.  It should be called for every bit:
 //
-//     if (bpos==0) 
+//     if (bpos==0)
 //       for (int i=0; i<C; ++i) cm.set(cxt[i]);
 //     cm.mix(m);
 //
@@ -1583,7 +1583,7 @@ public:
 //
 // Bit histories are stored in a hash table.  The table is organized into
 // 64-byte buckets alinged on cache page boundaries.  Each bucket contains
-// a hash chain of 7 elements, plus a 2 element queue (packed into 1 byte) 
+// a hash chain of 7 elements, plus a 2 element queue (packed into 1 byte)
 // of the last 2 elements accessed for LRU replacement.  Each element has
 // a 2 byte checksum for detecting collisions, and an array of 7 bit history
 // states indexed by the last 0 to 2 bits of context.  The buckets are indexed
@@ -1594,7 +1594,7 @@ public:
 // On bits 0, 2 and 5, the context is updated and a new bucket is selected.
 // The most recently accessed element is tried first, by comparing the
 // 16 bit checksum, then the 7 elements are searched linearly.  If no match
-// is found, then the element with the lowest priority among the 5 elements 
+// is found, then the element with the lowest priority among the 5 elements
 // not in the LRU queue is replaced.  After a replacement, the queue is
 // emptied (so that consecutive misses favor a LFU replacement policy).
 // In all cases, the found/replaced element is put in the front of the queue.
@@ -1607,9 +1607,9 @@ public:
 // history states are used.  The remaining 4 bytes implement a run model
 // as follows: <count:7,d:1> <b1> <unused> <unused> where <b1> is the last byte
 // seen, possibly repeated.  <count:7,d:1> is a 7 bit count and a 1 bit
-// flag (represented by count * 2 + d).  If d=0 then <count> = 1..127 is the 
-// number of repeats of <b1> and no other bytes have been seen.  If d is 1 then 
-// other byte values have been seen in this context prior to the last <count> 
+// flag (represented by count * 2 + d).  If d=0 then <count> = 1..127 is the
+// number of repeats of <b1> and no other bytes have been seen.  If d is 1 then
+// other byte values have been seen in this context prior to the last <count>
 // copies of <b1>.
 //
 // As an optimization, the last two hash elements of each byte (representing
@@ -1755,7 +1755,7 @@ int ContextMap::mix1(Mixer& m, int cc, int bp, int c1, int y1) {
       m.add(0);
 
     // predict from bit context
-   if(cp[i])
+   if (cp[i])
    {
     result+=mix2(m, *cp[i], sm[i]);
    }
@@ -1786,7 +1786,7 @@ int matchModel(Mixer& m) {
   static int ptr=0;  // points to next byte of match if any
   static int len=0;  // length of match, or 0 if no match
   static int result=0;
-  
+
   static SmallStationaryContextMap scm1(0x20000);
 
   if (!bpos) {
@@ -1814,7 +1814,7 @@ int matchModel(Mixer& m) {
      m.add(ilog(len)<<2);
      m.add(min(len, 32)<<6);
     }
-    else 
+    else
     {
      m.add(-(ilog(len)<<2));
      m.add(-(min(len, 32)<<6));
@@ -1851,14 +1851,13 @@ void wordModel(Mixer& m) {
   if (bpos==0) {
     int c=c4&255;
     if (spaces&0x80000000) --spacecount;
-	if (words&0x80000000) --wordcount;
-	spaces=spaces*2;
-	words=words*2;
+    if (words&0x80000000) --wordcount;
+    spaces=spaces*2;
+    words=words*2;
 
-    if (c>='A' && c<='Z')
-      c+='a'-'A';
+    if (c>='A' && c<='Z') c+='a'-'A';
     if (c>='a' && c<='z'  || c>=128) {
-                ++words, ++wordcount;
+      ++words, ++wordcount;
       word0=word0*263*32+c;
       text0=text0*997*16+c;
       wordlen++;
@@ -1880,26 +1879,22 @@ void wordModel(Mixer& m) {
       number1=number0*11;
       number0=0;
     }
-    if( c=='.' || c=='!' || c=='?' || c==',' || c==';' || c==':') spafdo=0; else { ++spafdo; spafdo=min(63,spafdo); }
- if (c==32 || c==10) { ++spaces, ++spacecount; if (c==10) nl1=nl, nl=pos-1;}
+    if (c=='.' || c=='!' || c=='?' || c==',' || c==';' || c==':') spafdo=0; else { ++spafdo; spafdo=min(63,spafdo); }
+    if (c==32 || c==10) { ++spaces, ++spacecount; if (c==10) nl1=nl, nl=pos-1;}
     int col=min(255, pos-nl), above=buf[nl1+col]; // text column context
-    if (col<=2) {
-		if (col==2) frstchar=min(c,96); else frstchar=0;
-	}
-	cm.set(spafdo|col<<8 );
-    cm.set(spafdo|spaces<<8 ); //
+    if (col<=2) frstchar=(col==2?min(c,96):0);
+    cm.set(spafdo|col<<8);
+    cm.set(spafdo|spaces<<8);
     cm.set(frstchar<<11|c);
     cm.set(col<<8|frstchar);
- 
- cm.set(spaces<<8|words&255);
+    cm.set(spaces<<8|words&255);
 
-   
     cm.set(number0+word2*31);
     cm.set(number0+word1*31);
     cm.set(number0*31+c);
     cm.set(number0+number1*31);
     cm.set(word0+number1*31);
-    
+
     cm.set(frstchar<<7);
     cm.set(wordlen<<16|c);
     cm.set(wordlen1<<8|col);
@@ -1909,11 +1904,10 @@ void wordModel(Mixer& m) {
     cm.set(h);
     cm.set(h+spafdo*8);
 
+    U32 d=c4&0xffff;
+    cm.set(d<<9|frstchar);
 
-U32 d=c4&0xffff;
-cm.set(d<<9|frstchar);
-
-h=word0*271+buf(1);
+    h=word0*271+buf(1);
     cm.set(h);
     cm.set(word0);
     cm.set(h+word1);
@@ -1973,9 +1967,9 @@ void recordModel(Mixer& m) {
     // Set 2 dimensional contexts
     assert(rlen>0);
 #endif
-    cm.set(c<<8| (min(255, pos-cpos1[c])/4) );
+    cm.set(c<<8| (min(255, pos-cpos1[c])/4));
     cm.set(w<<9| llog(pos-wpos1[w])>>2);
-    
+
     cm.set(rlen|buf(rlen)<<10|buf(rlen*2)<<18);
     cn.set(w|rlen<<8);
     cn.set(d|rlen<<16);
@@ -2017,7 +2011,7 @@ void sparseModel(Mixer& m, int seenbefore, int howmany) {
 
   if (bpos==0) {
 
-    cm.set( c4&0x00f0f0f0);
+    cm.set(c4&0x00f0f0f0);
     cm.set((c4&0xf0f0f0f0)+1);
     cm.set((c4&0x00f8f8f8)+2);
     cm.set((c4&0xf8f8f8f8)+3);
@@ -2033,7 +2027,7 @@ void sparseModel(Mixer& m, int seenbefore, int howmany) {
     cm.set(buf(1)|buf(6)<<8);
     cm.set(buf(3)|buf(6)<<8);
     cm.set(buf(4)|buf(8)<<8);
-    
+
     for (int i=1; i<8; ++i) {
       cm.set((buf(i+1)<<8)|buf(i+2));
       cm.set((buf(i+1)<<8)|buf(i+3));
@@ -2041,13 +2035,13 @@ void sparseModel(Mixer& m, int seenbefore, int howmany) {
     }
 
     int fl = 0;
-    if( c4&0xff != 0 ){
-           if( isalpha( c4&0xff ) ) fl = 1;
-      else if( ispunct( c4&0xff ) ) fl = 2;
-      else if( isspace( c4&0xff ) ) fl = 3;
-      else if( c4&0xff == 0xff ) fl = 4;
-      else if( c4&0xff < 16 ) fl = 5;
-      else if( c4&0xff < 64 ) fl = 6;
+    if (c4&0xff != 0) {
+      if (isalpha(c4&0xff)) fl = 1;
+      else if (ispunct(c4&0xff)) fl = 2;
+      else if (isspace(c4&0xff)) fl = 3;
+      else if (c4&0xff == 0xff) fl = 4;
+      else if (c4&0xff < 16) fl = 5;
+      else if (c4&0xff < 64) fl = 6;
       else fl = 7;
     }
     mask = (mask<<3)|fl;
@@ -2065,12 +2059,12 @@ void sparseModel(Mixer& m, int seenbefore, int howmany) {
 
 void distanceModel(Mixer& m) {
   static ContextMap cr(MEM, 3);
-  if( bpos == 0 ){
+  if (bpos == 0) {
     static int pos00=0,pos20=0,posnl=0;
     int c=c4&0xff;
-    if(c==0x00)pos00=pos;
-    if(c==0x20)pos20=pos;
-    if(c==0xff||c=='\r'||c=='\n')posnl=pos;
+    if (c==0x00) pos00=pos;
+    if (c==0x20) pos20=pos;
+    if (c==0xff||c=='\r'||c=='\n') posnl=pos;
     cr.set(min(pos-pos00,255)|(c<<8));
     cr.set(min(pos-pos20,255)|(c<<8));
     cr.set(min(pos-posnl,255)|(c<<8)+234567);
@@ -2157,7 +2151,7 @@ void im8bitModel(Mixer& m, int w) {
   static SmallStationaryContextMap scm1(SC), scm2(SC),
     scm3(SC), scm4(SC), scm5(SC), scm6(SC*2),scm7(SC);
   static ContextMap cm(MEM*4, 32);
-  
+
   // Select nearby pixels as context
   if (!bpos) {
     assert(w>3);
@@ -2166,8 +2160,8 @@ void im8bitModel(Mixer& m, int w) {
     mean>>=2;
     const int logvar=ilog(var);
     int i=0;
-    // 2 x 
-    cm.set(hash(++i, buf(1)>>2, buf(w)>>2)); 
+    // 2 x
+    cm.set(hash(++i, buf(1)>>2, buf(w)>>2));
     cm.set(hash(++i, buf(1)>>2, buf(2)>>2));
     cm.set(hash(++i, buf(w)>>2, buf(w*2)>>2));
     cm.set(hash(++i, buf(1)>>2, buf(w-1)>>2));
@@ -2237,9 +2231,9 @@ void im1bitModel(Mixer& m, int w) {
   static int cxt[N];  // contexts
   static StateMap sm[N];
 
-  // update the model 
+  // update the model
   int i;
-  for ( i=0; i<N; ++i)
+  for (i=0; i<N; ++i)
     t[cxt[i]]=nex(t[cxt[i]],y);
 
   // update the contexts (pixels surrounding the predicted one)
@@ -2257,7 +2251,7 @@ void im1bitModel(Mixer& m, int w) {
   cxt[7]=0x4000+(r0>>4&0x2AC|r1&0xA4|r2&0x349|!r3&0x14D);
 
   // predict
-  for ( i=0; i<N; ++i) m.add(stretch(sm[i].p(t[cxt[i]])));
+  for (i=0; i<N; ++i) m.add(stretch(sm[i].p(t[cxt[i]])));
 }
 
 //////////////////////////// jpegModel /////////////////////////
@@ -2458,7 +2452,7 @@ int jpegModel(Mixer& m) {
     if (pos==data && bpos==1) {
       jassert(htsize>0);
       int i;
-      for ( i=0; i<htsize; ++i) {
+      for (i=0; i<htsize; ++i) {
         int p=ht[i]+4;  // pointer to current table after length field
         int end=p+buf[p-2]*256+buf[p-1]-2;  // end of Huffman table
         int count=0;  // sanity check
@@ -2466,14 +2460,14 @@ int jpegModel(Mixer& m) {
           int tc=buf[p]>>4, th=buf[p]&15;
           if (tc>=2 || th>=4) break;
           jassert(tc>=0 && tc<2 && th>=0 && th<4);
-          HUF* h=&huf[tc*64+th*16]; // [tc][th][0]; 
+          HUF* h=&huf[tc*64+th*16]; // [tc][th][0];
           int val=p+17;  // pointer to values
           int hval=tc*1024+th*256;  // pointer to RS values in hbuf
           int j;
-          for ( j=0; j<256; ++j) // copy RS codes
+          for (j=0; j<256; ++j) // copy RS codes
             hbuf[hval+j]=buf[val+j];
           int code=0;
-          for ( j=0; j<16; ++j) {
+          for (j=0; j<16; ++j) {
             h[j].min=code;
             h[j].max=code+=buf[p+j+1];
             h[j].val=hval;
@@ -2496,7 +2490,7 @@ int jpegModel(Mixer& m) {
       jassert(ns<=4 && nf<=4);
       mcusize=0;  // blocks per MCU
       int hmax=0;  // MCU horizontal dimension
-      for ( i=0; i<ns; ++i) {
+      for (i=0; i<ns; ++i) {
         for (int j=0; j<nf; ++j) {
           if (buf[sos+2*i+5]==buf[sof+3*j+10]) { // Cs == C ?
             int hv=buf[sof+3*j+11];  // packed dimensions H x V
@@ -2520,12 +2514,12 @@ int jpegModel(Mixer& m) {
       }
       jassert(hmax>=1 && hmax<=10);
       int j;
-      for ( j=0; j<mcusize; ++j) {
+      for (j=0; j<mcusize; ++j) {
         ls[j]=0;
         for (int i=1; i<mcusize; ++i) if (color[(j+i)%mcusize]==color[j]) ls[j]=i;
         ls[j]=mcusize-ls[j]<<6;
       }
-      for ( j=0; j<64; ++j) zpos[zzu[j]+8*zzv[j]]=j;
+      for (j=0; j<64; ++j) zpos[zzu[j]+8*zzv[j]]=j;
       width=buf[sof+7]*256+buf[sof+8];  // in pixels
       int height=buf[sof+5]*256+buf[sof+6];
       printf("JPEG %dx%d ", width, height);
@@ -2784,8 +2778,7 @@ int jpegModel(Mixer& m) {
 
 //////////////////////////// wavModel /////////////////////////////////
 
-// Model a 16/8-bit stereo/mono uncompressed .wav file.  Return
-// number of channels and bits per sample if a wav file is detected, else 0.
+// Model a 16/8-bit stereo/mono uncompressed .wav file.
 // Based on 'An asymptotically Optimal Predictor for Stereo Lossless Audio Compression'
 // by Florin Ghido.
 
@@ -2807,7 +2800,7 @@ inline int X(int i, int j) {
   else return buf(i+j);
 }
 
-int wavModel(Mixer& m, int info) {
+void wavModel(Mixer& m, int info) {
   static int pr[3][2], n[2], counter[2];
   static double F[49][49][2],L[49][49];
   int j,k,l,i=0;
@@ -2985,7 +2978,7 @@ void indirectModel(Mixer& m) {
 //////////////////////////// dmcModel //////////////////////////
 
 // Model using DMC.  The bitwise context is represented by a state graph,
-// initilaized to a bytewise order 1 model as in 
+// initilaized to a bytewise order 1 model as in
 // http://plg.uwaterloo.ca/~ftp/dmc/dmc.c but with the following difference:
 // - It uses integer arithmetic.
 // - The threshold for cloning a state increases as memory is used up.
@@ -3189,9 +3182,9 @@ int contextModel2() {
   // Normal model
   if (bpos==0) {
     int i;
-    for ( i=15; i>0; --i)  // update order 0-11 context hashes
+    for (i=15; i>0; --i)  // update order 0-11 context hashes
       cxt[i]=cxt[i-1]*257+(c4&255)+1;
-    for ( i=0; i<7; ++i)
+    for (i=0; i<7; ++i)
       cm.set(cxt[i]);
     rcm7.set(cxt[7]);
     cm.set(cxt[8]);
@@ -3200,7 +3193,7 @@ int contextModel2() {
     cm.set(cxt[14]);
   }
   int order=cm.mix(m);
-  
+
   rcm7.mix(m);
   rcm9.mix(m);
   rcm10.mix(m);
@@ -3218,7 +3211,7 @@ int contextModel2() {
 
 
   order = order-2;
-  if(order<0) order=0;
+  if (order<0) order=0;
 
   U32 c1=buf(1), c2=buf(2), c3=buf(3), c;
 
@@ -3228,10 +3221,10 @@ int contextModel2() {
   m.set(c2, 256);
   m.set(c3, 256);
   m.set(ismatch, 256);
-  
-  if(bpos)
-  {	
-    c=c0<<(8-bpos); if(bpos==1)c+=c3/2;
+
+  if (bpos)
+  {
+    c=c0<<(8-bpos); if (bpos==1)c+=c3/2;
     c=(min(bpos,5))*256+c1/32+8*(c2/32)+(c&192);
   }
   else c=c3/128+(c4>>31)*2+4*(c2/64)+(c1&240);
@@ -3275,15 +3268,15 @@ void Predictor::update() {
   int pr0=contextModel2();
 
   pr=a.p(pr0, c0);
-  
+
   int pr1=a1.p(pr0, c0+256*buf(1));
   int pr2=a2.p(pr0, c0^hash(buf(1), buf(2))&0xffff);
   int pr3=a3.p(pr0, c0^hash(buf(1), buf(2), buf(3))&0xffff);
   pr0=pr0+pr1+pr2+pr3+2>>2;
-  
-      pr1=a4.p(pr, c0+256*buf(1));
-      pr2=a5.p(pr, c0^hash(buf(1), buf(2))&0xffff);
-      pr3=a6.p(pr, c0^hash(buf(1), buf(2), buf(3))&0xffff);
+
+  pr1=a4.p(pr, c0+256*buf(1));
+  pr2=a5.p(pr, c0^hash(buf(1), buf(2))&0xffff);
+  pr3=a6.p(pr, c0^hash(buf(1), buf(2), buf(3))&0xffff);
   pr=pr+pr1+pr2+pr3+2>>2;
 
   pr=pr+pr0+1>>1;
@@ -3349,7 +3342,7 @@ public:
     assert(mode==COMPRESS);
     if (level==0)
       putc(c, archive);
-    else 
+    else
       for (int i=7; i>=0; --i)
         code((c>>i)&1);
   }
@@ -3371,7 +3364,7 @@ public:
   }
 };
 
-Encoder::Encoder(Mode m, FILE* f): 
+Encoder::Encoder(Mode m, FILE* f):
     mode(m), archive(f), x1(0), x2(0xffffffff), x(0), alt(0) {
   if (level>0 && mode==DECOMPRESS) {  // x = first 4 bytes of archive
     for (int i=0; i<4; ++i)
@@ -3431,7 +3424,7 @@ void Encoder::flush() {
 //
 // decodes one byte from en and returns it.  decode() and decode_X()
 // maintain state information using static variables.
-#define bswap(x)	\
+#define bswap(x) \
 +   ((((x) & 0xff000000) >> 24) | \
 +    (((x) & 0x00ff0000) >>  8) | \
 +    (((x) & 0x0000ff00) <<  8) | \
@@ -3619,8 +3612,8 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
 
     // Detect .tga image (8-bit 256 colors or 24-bit uncompressed)
     if (buf1==0x00010100 && buf0==0x00000118) tga=i,tgax=tgay,tgaz=8,tgat=1;
-    if (buf1==0x00000200 && buf0==0x00000000) tga=i,tgax=tgay,tgaz=24,tgat=2;
-    if (buf1==0x00000300 && buf0==0x00000000) tga=i,tgax=tgay,tgaz=8,tgat=3;
+    else if (buf1==0x00000200 && buf0==0x00000000) tga=i,tgax=tgay,tgaz=24,tgat=2;
+    else if (buf1==0x00000300 && buf0==0x00000000) tga=i,tgax=tgay,tgaz=8,tgat=3;
     if (tga) {
       if (i-tga==8) tga=(buf1==0?tga:0),tgax=(bswap(buf0)&0xffff),tgay=(bswap(buf0)>>16);
       else if (i-tga==10) {
@@ -3818,61 +3811,56 @@ void printStatus(int n) {
 }
 
 // Compress a file
-void compress(const char* filename, long filesize, Encoder& en) {
+void compress(const char* filename, int size, Encoder& en) {
   assert(en.getMode()==COMPRESS);
   assert(filename && filename[0]);
   FILE *f=fopen(filename, "rb");
   if (!f) perror(filename), quit();
   long start=en.size();
-  printf("%s %ld -> ", filename, filesize);
+  printf("%s %ld -> ", filename, size);
 
-  // Transform and test in blocks
-  const int BLOCK=(level>7?(1<<30):MEM*128);
-  for (int i=0; filesize>0; i+=BLOCK) {
-    int size=BLOCK;
-    if (size>filesize) size=filesize;
-    FILE* tmp=tmpfile();
-    if (!tmp) perror("tmpfile"), quit();
-    long savepos=ftell(f);
-    encode(f, tmp, size);
+  // Transform and test
+  FILE* tmp=tmpfile();
+  if (!tmp) perror("tmpfile"), quit();
+  long savepos=ftell(f);
+  encode(f, tmp, size);
 
-    // Test transform
-    rewind(tmp);
-    en.setFile(tmp);
+  // Test transform
+  rewind(tmp);
+  en.setFile(tmp);
+  fseek(f, savepos, SEEK_SET);
+  long j;
+  int c1=0, c2=0;
+  for (j=0; j<size; ++j)
+    if ((c1=decode(en))!=(c2=getc(f))) break;
+
+  // Test fails, compress without transform
+  if (j!=size || getc(tmp)!=EOF) {
+    printf("Transform fails at %ld, input=%d decoded=%d, skipping...\n", j, c2, c1);
+    en.compress(0);
+    en.compress(size>>24);
+    en.compress(size>>16);
+    en.compress(size>>8);
+    en.compress(size);
     fseek(f, savepos, SEEK_SET);
-    long j;
-    int c1=0, c2=0;
-    for (j=0; j<size; ++j)
-      if ((c1=decode(en))!=(c2=getc(f))) break;
-
-    // Test fails, compress without transform
-    if (j!=size || getc(tmp)!=EOF) {
-      printf("Transform fails at %ld, input=%d decoded=%d, skipping...\n", i+j, c2, c1);
-      en.compress(0);
-      en.compress(size>>24);
-      en.compress(size>>16);
-      en.compress(size>>8);
-      en.compress(size);
-      fseek(f, savepos, SEEK_SET);
-      for (int j=0; j<size; ++j) {
-        printStatus(i+j);
-        en.compress(getc(f));
-      }
+    for (int j=0; j<size; ++j) {
+      printStatus(j);
+      en.compress(getc(f));
     }
-
-    // Test succeeds, decode(encode(f)) == f, compress tmp
-    else {
-      rewind(tmp);
-      int c;
-      j=0;
-      while ((c=getc(tmp))!=EOF) {
-        printStatus(i+j++);
-        en.compress(c);
-      }
-    }
-    filesize-=size;
-    fclose(tmp);  // deletes
   }
+
+  // Test succeeds, decode(encode(f)) == f, compress tmp
+  else {
+    rewind(tmp);
+    int c;
+    j=0;
+    while ((c=getc(tmp))!=EOF) {
+      printStatus(j++);
+      en.compress(c);
+    }
+  }
+  fclose(tmp);  // deletes
+
   if (f) fclose(f);
   printf("%-12ld\n", en.size()-start);
 }
@@ -4074,7 +4062,7 @@ int expand(String& archive, String& s, const char* fname, int base) {
 
 int expand(String& archive, String& s, const char* fname, int base) {
   return putsize(archive, s, fname, base);
-}  
+}
 
 #endif
 #endif
@@ -4154,7 +4142,7 @@ int main(int argc, char** argv) {
         archiveName+=PROGNAME;
       }
     }
-   
+
     // Compress: write archive header, get file names and sizes
     String filenames;
     if (mode==COMPRESS) {
@@ -4163,7 +4151,7 @@ int main(int argc, char** argv) {
       // to archive.
       String header_string;
       int i;
-      for ( i=1; i<argc; ++i) {
+      for (i=1; i<argc; ++i) {
         String name(argv[i]);
         int len=name.size()-1;
         for (int j=0; j<=len; ++j)  // change \ to /
@@ -4199,7 +4187,7 @@ int main(int argc, char** argv) {
       char *p=&filenames[0];
       rewind(archive);
       getline(archive);
-      for ( i=0; i<files; ++i) {
+      for (i=0; i<files; ++i) {
         const char *num=getline(archive);
         assert(num);
         fsize[i]=atol(num);
@@ -4248,7 +4236,7 @@ int main(int argc, char** argv) {
         *p++=0;
       }
     }
-        
+
     // Set globals according to option
     assert(level>=0 && level<=9);
     buf.setsize(MEM*8);
