@@ -4009,12 +4009,12 @@ int decode_exe(Encoder& en) {
 void encode(FILE* in, FILE* out, int n) {
   Filetype type=DEFAULT;
   int n1=n;
-  long begin=ftell(in);
+  long begin=ftell(in), begin1=begin;
   while (n>0) {
     Filetype nextType=detect(in, n, type);
     long end=ftell(in);
     fseek(in, begin, SEEK_SET);
-    if (end>n1) { // if some detection reports longer then actual size file is
+    if (end>begin1+n1) { // if some detection reports longer then actual size file is
       end=begin+1;
       type=DEFAULT;
     }
@@ -4069,7 +4069,7 @@ void compress(const char* filename, long filesize, Encoder& en) {
   printf("%s %ld -> ", filename, filesize);
 
   // Transform and test in blocks
-  const int BLOCK=MEM*64;
+  const int BLOCK=MEM*128;
   for (int i=0; filesize>0; i+=BLOCK) {
     int size=BLOCK;
     if (size>filesize) size=filesize;
