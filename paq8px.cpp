@@ -1,4 +1,4 @@
-/* paq8px file compressor/archiver.  Release by Jan Ondrus, May. 30, 2009
+/* paq8px file compressor/archiver.  Release by Jan Ondrus, Jun. 2, 2009
 
     Copyright (C) 2008 Matt Mahoney, Serge Osnach, Alexander Ratushnyak,
     Bill Pettis, Przemyslaw Skibinski, Matthew Fite, wowtiger, Andrew Paterson,
@@ -3520,11 +3520,12 @@ U32 edc_compute(const U8  *src, int size) {
   return edc;
 }
 
-int expand_cd_sector(U8 *data, int a, int mode) {
+int expand_cd_sector(U8 *data, int a, int test) {
   U8 d2[2352];
   eccedc_init();
   d2[0]=d2[11]=0;
   for (int i=1; i<11; i++) d2[i]=255;
+  int mode=(data[15]==2?2:1);
   if (a==-1) for (int i=12; i<15; i++) d2[i]=data[i]; else {
     int c1=(a&15)+((a>>4)&15)*10;
     int c2=((a>>8)&15)+((a>>12)&15)*10;
@@ -3538,17 +3539,24 @@ int expand_cd_sector(U8 *data, int a, int mode) {
     d2[13]=(c2%10)+16*(c2/10);
     d2[14]=(c1%10)+16*(c1/10);
   }
-  d2[15]=1;
-  for (int i=16; i<2064; i++) d2[i]=data[i];
-  U32 edc=edc_compute(d2, 2064);
-  d2[2064]=(edc>>0)&0xff;
-  d2[2065]=(edc>>8)&0xff;
-  d2[2066]=(edc>>16)&0xff;
-  d2[2067]=(edc>>24)&0xff;
-  for(int i=2068; i<2076; i++) d2[i] = 0;
+  d2[15]=mode;
+  if (mode==2) {
+    for (int i=16; i<24; i++) d2[i]=data[i-4*(i>=20)];
+    d2[1]=d2[12],d2[2]=d2[13],d2[3]=d2[14];
+    d2[12]=d2[13]=d2[14]=d2[15]=0;
+  } else {
+    for(int i=2068; i<2076; i++) d2[i]=0;
+  }
+  for (int i=16+8*(mode==2); i<2064+8*(mode==2); i++) d2[i]=data[i];
+  U32 edc=edc_compute(d2+16*(mode==2), 2064-8*(mode==2));
+  for (int i=0; i<4; i++) d2[2064+8*(mode==2)+i]=(edc>>(8*i))&0xff;
   ecc_compute(d2+12, 86, 24,  2, 86, d2+2076);
   ecc_compute(d2+12, 52, 43, 86, 88, d2+2248);
-  for (int i=0; i<2352; i++) if (mode && d2[i]!=data[i]) return 1; else data[i]=d2[i];
+  if (mode==2) {
+    d2[12]=d2[1],d2[13]=d2[2],d2[14]=d2[3],d2[15]=2;
+    d2[1]=d2[2]=d2[3]=255;
+  }
+  for (int i=0; i<2352; i++) if (test && d2[i]!=data[i]) return 1; else data[i]=d2[i];
   return 0;
 }
 
@@ -3573,8 +3581,8 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
   int tga=0,tgax,tgay,tgaz,tgat;  // For TGA detection
   int pgm=0,pgmcomment=0,pgmw=0,pgmh=0,pgm_ptr=0,pgmc=0,pgmn=0;  // For PBM, PGM, PPM detection
   char pgm_buf[32];
-  int cdi=0,cda;  // For CD sectors detection
-  U8 data[2352];
+  int cdi=0,cda,cdm;  // For CD sectors detection
+  U32 cdf;
 
   // For image detection
   static int deth=0,detd=0;  // detected header/data size in bytes
@@ -3588,13 +3596,17 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
     buf1=buf1<<8|buf0>>24;
     buf0=buf0<<8|c;
 
-    // CD sectors detection (mode 1 - 2352 bytes)
+    // CD sectors detection (mode 1 and mode 2 XA form 1 - 2352 bytes)
     if (buf1==0x00ffffff && buf0==0xffffffff && !cdi) cdi=i,cda=-1;
     if (cdi && i>cdi) {
-      const int p=(i-cdi)%2352;      
-      if (p==8 && (buf1!=0xffffff00 || (buf0&0xff)!=0x01)) cdi=0;
-      else if (p==2068 && (buf1!=0 || buf0!=0)) cdi=0;
+      const int p=(i-cdi)%2352;
+      if (p==8 && (buf1!=0xffffff00 || (i-cdi>2352 && cdm!=(buf0&0xff)))) cdi=0;
+      else if (p==8) cdm=(buf0&0xff),cdi=(cdm!=1&&cdm!=2)?0:cdi;
+      else if (p==16 && cdm==2 && (buf0!=buf1 || (i-cdi>2352 && buf0!=cdf))) cdi=0;
+      else if (p==20 && cdm==2) cdf=buf1;
+      else if (p==2068 && cdm==1 && (buf1!=0 || buf0!=0)) cdi=0;
       else if (p==0) {
+        U8 data[2352];
         long savedpos=ftell(in);
         fseek(in, start+i-2352-7, SEEK_SET);
         fread(data, 1, 2352, in);
@@ -3873,8 +3885,8 @@ void encode_cd(FILE* in, FILE* out, int len) {
       fwrite(&blk[0], 1, len-offset, out);
     } else {
       fread(&blk[0], 1, BLOCK, in);
-      if (offset==0) fwrite(&blk[12], 1, 3, out);
-      fwrite(&blk[16], 1, 2048, out);
+      if (offset==0) fwrite(&blk[12], 1, 4+4*(blk[15]==2), out);
+      fwrite(&blk[16+8*(blk[15]==2)], 1, 2048, out);
     }
   }
 }
@@ -3893,12 +3905,10 @@ int decode_cd(Encoder& en, int size, int it) {
   if (state==0 && size2>=BLOCK-1) {
     int a;
     if (size2==size-1) {
-      blk[12]=decode(en, it);
-      blk[13]=decode(en, it);
-      blk[14]=decode(en, it);
+      for (int i=12; i<16+4*(blk[15]==2); i++) blk[i]=decode(en, it);
       a=-1;
     } else a=(blk[12]<<16)+(blk[13]<<8)+blk[14];
-    for (int i=0;i<2048;i++) blk[16+i]=decode(en, it);
+    for (int i=0; i<2048; i++) blk[16+i+(blk[15]==2)*8]=decode(en, it);
     expand_cd_sector(blk, a, 0);
   } else if (state==0) {
     return decode(en, it);
@@ -4019,7 +4029,7 @@ void printStatus(int n, int size) {
     printf("%6.2f%%\b\b\b\b\b\b\b", float(100)*n/(size+1)), fflush(stdout);
 }
 
-void direct_encode_block(Filetype type, FILE *in, int len, int info, Encoder &en) {
+void direct_encode_block(Filetype type, FILE *in, int len, int info, Encoder &en, int s1, int s2) {
   en.compress(type);
   en.compress(len>>24);
   en.compress(len>>16);
@@ -4032,8 +4042,9 @@ void direct_encode_block(Filetype type, FILE *in, int len, int info, Encoder &en
     en.compress(info);
   }
   printf("Compressing... ");
-  for (int j=0; j<len; ++j) {
-    if (!(j&0xfff)) printStatus(j, len);
+  const int total=s1+len+s2;
+  for (int j=s1; j<s1+len; ++j) {
+    if (!(j&0xfff)) printStatus(j, total);
     en.compress(getc(in));
   }
   printf("\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b");
@@ -4044,16 +4055,17 @@ void iter_transform(FILE *in, int filesize, Encoder &en, int it=MAX_ITER) {
     "1-bit-image", "8-bit-image", "24-bit-image", "audio", "exe", "cd"};
   static const char* audiotypes[4]={"8-bit mono", "8-bit stereo", "16-bit mono",
     "16-bit stereo"};
+  static int s1=0, s2=0;
   Filetype type=DEFAULT;
   int info;  // image width or audio type
   int n=filesize, blnum=0;
   long begin=ftell(in), begin0=begin;
   FILE* tmp;
   if (--it==0) {
-    direct_encode_block(DEFAULT, in, filesize, -1, en);
+    direct_encode_block(DEFAULT, in, filesize, -1, en, s1, s2);
     return;
   }
-
+  s2+=n;
   // Transform and test in blocks
   while (n>0) {
     Filetype nextType=detect(in, n, type, info);
@@ -4065,6 +4077,7 @@ void iter_transform(FILE *in, int filesize, Encoder &en, int it=MAX_ITER) {
     }
     int len=int(end-begin);
     if (len>0) {
+      s2-=len;
       printf("%3d-%d | %12s | %d bytes [%d - %d]",blnum++,MAX_ITER-it-1,typenames[type],len,begin,end-1);
       if (type==AUDIO) printf(" (%s)", audiotypes[info%4]);
       else if (type==IMAGE1 || type==IMAGE8 || type==IMAGE24) printf(" (width: %d)", info);
@@ -4087,7 +4100,7 @@ void iter_transform(FILE *in, int filesize, Encoder &en, int it=MAX_ITER) {
         if (j!=len || getc(tmp)!=EOF) {
           printf("Transform fails at %ld, input=%d decoded=%d, skipping...\n", j, c2, c1);
           fseek(in, begin, SEEK_SET);
-          direct_encode_block(DEFAULT, in, len, -1, en);
+          direct_encode_block(DEFAULT, in, len, -1, en, s1, s2);
         } else {
           const long tmpsize=ftell(tmp)-5;
           rewind(tmp);
@@ -4095,14 +4108,15 @@ void iter_transform(FILE *in, int filesize, Encoder &en, int it=MAX_ITER) {
           if (type==CD) {
             iter_transform(tmp, tmpsize, en, it);
           } else {
-            direct_encode_block(type, tmp, tmpsize, -1, en);
+            direct_encode_block(type, tmp, tmpsize, -1, en, s1, s2);
           }
         }
         fclose(tmp);  // deletes
       } else {
         const int i1=(type==IMAGE1 || type==IMAGE8 || type==IMAGE24 || type==AUDIO)?info:-1;
-        direct_encode_block(type, in, len, i1, en);
+        direct_encode_block(type, in, len, i1, en, s1, s2);
       }
+      s1+=len;
     }
 
     n-=len;
