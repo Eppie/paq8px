@@ -2847,14 +2847,14 @@ void wavModel(Mixer& m, int info) {
         for (i=1; i<=S+D; i++) {
            sum=F[i][i][chn];
            for (k=1; k<i; k++) sum-=L[i][k]*L[i][k];
-           sum=float(sum);
+           sum=round(sum);
            sum=1/sum;
            if (sum>0) {
              L[i][i]=sqrt(sum);
              for (j=(i+1); j<=S+D; j++) {
                sum=F[i][j][chn];
                for (k=1; k<i; k++) sum-=L[j][k]*L[i][k];
-               sum=float(sum);
+               sum=round(sum);
                L[j][i]=sum*L[i][i];
              }
            } else break;
