@@ -3593,6 +3593,7 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
       }
       if (!cdi && type==CD) return fseek(in, start+(p==0?i-2352:i-p)-7, SEEK_SET), DEFAULT;
     }
+    if (type==CD) continue;
 
     // Detect JPEG by code SOI APPx (FF D8 FF Ex) followed by
     // SOF0 (FF C0 xx xx 08) and SOS (FF DA) within a reasonable distance.
