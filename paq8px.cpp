@@ -3857,7 +3857,7 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
     // 4 times in a row.  Detect end of EXE at the last
     // place this happens when it does not happen for 64KB.
 
-    if ((buf1&0xfe)==0xe8 && (buf0+1&0xfe)==0) {
+    if (((buf1&0xfe)==0xe8 || (buf1&0xfff0)==0x0f80) && (buf0+1&0xfe)==0) {
       int r=buf0>>24;  // relative address low 8 bits
       int a=(buf0>>24)+i&0xff;  // absolute address low 8 bits
       int rdist=i-relpos[r];
