@@ -2073,26 +2073,10 @@ void distanceModel(Mixer& m) {
   cr.mix(m);
 }
 
-// For ppmModel and pgmModel
-#define ISWHITESPACE(i) (buf(i) == ' ' || buf(i) == '\t' || buf(i) == '\n' || buf(i) == '\r')
-#define ISCRLF(i) (buf(i) == '\n' || buf(i) == '\r')
 
 //////////////////////////// im24bitModel /////////////////////////////////
 
-// Model a 24-bit color uncompressed .bmp, .tif or .ppm file.  Return
-// width in pixels if an image file is detected, else 0.
-
-// 32-bit little endian number at buf(i)..buf(i-3)
-inline U32 i4(int i) {
-  assert(i>3);
-  return buf(i)+256*buf(i-1)+65536*buf(i-2)+16777216*buf(i-3);
-}
-
-// 16-bit
-inline int i2(int i) {
-  assert(i>1);
-  return buf(i)+256*buf(i-1);
-}
+// Model for 24-bit image data
 
 // Square buf(i)
 inline int sqrbuf(int i) {
@@ -2100,107 +2084,11 @@ inline int sqrbuf(int i) {
   return buf(i)*buf(i);
 }
 
-int im24bitModel(Mixer& m) {
-  static U32 tiff=0;   // offset of tif header
-  static int w=0, h=0; // size of image in bytes (pixels)
-  static int ibmp=0;
-  static int eoi=0;    // end of image
-  static int ppm=0;    // offset of ppm header
-  static int ppm_hdr[3]; // 0 - Width, 1 - Height, 2 - Max value
-  static int ppm_ptr;    // which record in header should be parsed next
-  int isws;              // is white space
-  char v_buf[32];
-  int v_ptr;
+void im24bitModel(Mixer& m, int w) {
   const int SC=0x20000;
   static SmallStationaryContextMap scm1(SC), scm2(SC),
     scm3(SC), scm4(SC), scm5(SC), scm6(SC), scm7(SC), scm8(SC), scm9(SC*2), scm10(SC);
   static ContextMap cm(MEM*4, 13);
-
-  // Detect .ppm header
-  if (!bpos && pos>eoi) {
-    if (!ppm && buf(3)=='P' && buf(2)=='6' && ISWHITESPACE(1)) {
-      ppm=pos;
-      ppm_ptr=0;
-      return w=0; // PPM header just detected, not enough info to get header yet
-    } else if (ppm && ppm_ptr!=3) { // parse header records
-      for (int i=ppm; i<pos-1 && ppm_ptr<3; i++) {
-        while ((isws=ISWHITESPACE(pos-i)) && i<pos-1) i++;  // Skip white spaces
-        if (isws) break; // buffer end is reached
-        if (buf(pos-i)=='#') {
-          do {i++;} while(!ISCRLF(pos-i) && i<pos-1);
-        } else {
-          v_ptr=0;  // Get header record as a string into v_buf
-          do {
-            v_buf[v_ptr++]=buf(pos-i);
-            i++;
-          } while (!(isws=ISWHITESPACE(pos-i)) && i<pos-1 && v_ptr<32);
-          if (isws) {
-            ppm_hdr[ppm_ptr++]=atoi(v_buf);
-            ppm=i; // move pointer
-          }
-        }
-      }
-      if (ppm_ptr==3) {
-        w=ppm_hdr[0];
-        h=ppm_hdr[1];
-        if (ppm_hdr[2]<=255 && w>0 && h>0) {
-          printf("PPM %dx%d ",w,h);
-          w*=3;
-          eoi=pos+w*h;
-        }
-        ppm=0;
-      } else if (pos-ppm>1024) ppm=0; // maximal length of header
-    }
-  }
-
-  // Detect .bmp file header (24 bit color, not compressed)
-  if (!bpos && pos>eoi) {
-    //  24-bit .bmp images
-    if (buf(54)=='B' && buf(53)=='M' && i4(44)<1079 && i4(40)==40 && i4(24)==0 && buf(26)==24) {
-      w=i4(36);  // image width
-      h=abs(i4(32));  // image height
-      ibmp=pos+i4(44)-54;
-    }
-    if (ibmp==pos && w>0 && h>0) {
-      ibmp=0;
-      printf("BMP(24-bit) %dx%d ",w,h);
-      w=(w*3)+3&-4;
-      eoi=pos+w*h;
-    }
-  }
-
-  // Detect .tif file header (24 bit color, not compressed).
-  // Parsing is crude, won't work with weird formats.
-  if (!bpos && pos>eoi) {
-    if (c4==0x49492a00) tiff=pos;  // Intel format only
-    if (pos-tiff==4 && c4!=0x08000000) tiff=0; // 8=normal offset to directory
-    if (tiff && pos-tiff==200) {  // most of directory should be read by now
-      int dirsize=i2(pos-tiff-4);  // number of 12-byte directory entries
-      w=0;
-      int bpp=0, compression=0, width=0, height=0;
-      for (int i=tiff+6; i<pos-12 && --dirsize>0; i+=12) {
-        int tag=i2(pos-i);  // 256=width, 257==height, 259: 1=no compression
-          // 277=3 samples/pixel
-        int tagfmt=i2(pos-i-2);  // 3=short, 4=long
-        int taglen=i4(pos-i-4);  // number of elements in tagval
-        int tagval=i4(pos-i-8);  // 1 long, 1-2 short, or points to array
-        if ((tagfmt==3||tagfmt==4) && taglen==1) {
-          if (tag==256) width=tagval;
-          if (tag==257) height=tagval;
-          if (tag==259) compression=tagval; // 1 = no compression
-          if (tag==277) bpp=tagval;  // should be 3
-        }
-      }
-      if (width>0 && height>0 && width*height>50 && compression==1
-          && (bpp==1||bpp==3))
-        eoi=tiff+width*height*bpp, w=width*bpp;
-      if (eoi>pos)
-        printf("TIFF %dx%dx%d ", width, height, bpp);
-      else
-        tiff=w=0;
-    }
-  }
-  if (pos>eoi) return 0;
 
   // Select nearby pixels as context
   if (!bpos) {
@@ -2247,10 +2135,19 @@ int im24bitModel(Mixer& m) {
   scm9.mix(m);
   scm10.mix(m);
   cm.mix(m);
-  return w;
+  static int col=0;
+  if (++col>=24) col=0;
+  m.set(2, 8);
+  m.set(col, 24);
+  m.set(buf(w)+buf(3)>>4, 32);
+  m.set(c0, 256);
 }
 
-void model8bit(Mixer& m, int w) {
+//////////////////////////// im8bitModel /////////////////////////////////
+
+// Model for 8-bit image data
+
+void im8bitModel(Mixer& m, int w) {
   const int SC=0x20000;
   static SmallStationaryContextMap scm1(SC), scm2(SC),
     scm3(SC), scm4(SC), scm5(SC), scm6(SC*2),scm7(SC);
@@ -2324,105 +2221,11 @@ void model8bit(Mixer& m, int w) {
   m.set(c0, 256);
 }
 
-//////////////////////////// pgmModel /////////////////////////////////
+//////////////////////////// im1bitModel /////////////////////////////////
 
-// Model a 8-bit grayscale uncompressed binary .pgm and 8-bit color
-// uncompressed .bmp images.  Return width in pixels if an image file
-// is detected, else 0.
+// Model for 1-bit image data
 
-int pgmModel(Mixer& m) {
-  static int w=0, h=0; // size of image in bytes (pixels)
-  static int eoi=0;    // end of image
-  static int pgm=0;    // offset of pgm header
-  static int pgm_hdr[3];  // 0 - Width, 1 - Height, 2 - Max value
-  static int pgm_ptr;     // which record in header should be parsed next
-  int isws;
-  char v_buf[32];
-  int v_ptr;
-  if (!bpos && pos>eoi) {
-    if (!pgm && buf(3)=='P' && buf(2)=='5' && ISWHITESPACE(1)) { // Detect PGM file
-      pgm=pos;
-      pgm_ptr=0;
-      return w=0; // PGM header just detected, not enough info to get header yet
-    } else if (pgm && pgm_ptr!=3) { // PGM detected, let's parse header records
-      for (int i=pgm; i<pos-1 && pgm_ptr<3; i++) {
-        while ((isws=ISWHITESPACE(pos-i)) && i<pos-1) i++; // Skip white spaces
-        if (isws) break; // buffer end is reached
-        if (buf(pos-i)=='#') {
-          do {i++;} while (!ISCRLF(pos-i) && i<pos-1);
-        } else {
-          v_ptr=0;
-          do {
-            v_buf[v_ptr++]=buf(pos-i);
-            i++;
-          } while (!(isws=ISWHITESPACE(pos-i)) && i<pos-1 && v_ptr<32);
-          if (isws) {
-            pgm_hdr[pgm_ptr++]=atoi(v_buf);
-            pgm=i; // move pointer 
-          }
-        }
-      }
-      if (pgm_ptr==3) {
-        w=pgm_hdr[0];
-        h=pgm_hdr[1];
-        if (pgm_hdr[2]==255 && w>0 && h>0) {
-          printf("PGM %dx%d ",w,h);
-          eoi=pos+w*h;
-        }
-        pgm=0;
-      } else if (pos-pgm>1024) pgm=0; // maximal length of header
-    }
-  }
-  if (pos>eoi) return w=0;
-  model8bit(m,w);
-  return w;
-}
-
-int bmpModel8(Mixer& m) {
-  static int w=0, h=0; // size of image in bytes (pixels)
-  static int eoi=0;    // end of image
-  static int ibmp=0;
-  if (bpos==0 && pos>eoi) {
-    //  8-bit .bmp images
-    if (buf(54)=='B' && buf(53)=='M' && i4(44)<1079 && i4(40)==40 && i4(24)==0 && buf(26)==8) {
-      w=i4(36);  // image width
-      h=abs(i4(32));  // image height
-      ibmp=pos+i4(44)-54;
-    }
-    if (ibmp==pos && w>0 && h>0) {
-      ibmp=0;
-      printf("BMP(8-bit) %dx%d ",w,h);
-      eoi=pos+w*h;
-    }
-  }
-  if (pos>eoi) return 0;
-  model8bit(m,w);
-  return w;
-}
-
-int rgbModel8(Mixer& m) {
-  static int w=0, h=0; // size of image in bytes (pixels)
-  static int eoi=0;    // end of image
-  // for .rgb gray images
-  if (bpos==0) {
-    if (buf(507)==1 && buf(506)==218 && buf(505)==0 && i2(496)==1) {
-      w=(buf(501)&255)*256|(buf(500)&255);  // image width
-      h=(buf(499)&255)*256|(buf(498)&255);  // image height
-      printf("RGB(8-bit) %dx%d ",w,h);
-      eoi=pos+w*h;
-    }
-  }
-  if (pos>eoi) return w=0;
-  model8bit(m,w);
-  return w;
-}
-
-
-//////////////////////////// model1bit /////////////////////////////////
-
-// Model for 1 bit image data
-
-void model1bit(Mixer& m, int brow) {
+void im1bitModel(Mixer& m, int w) {
   static U32 r0, r1, r2, r3;  // last 4 rows, bit 8 is over current pixel
   static Array<U8> t(0x10200);  // model: cxt -> state
   const int N=4+1+1+1+1+1;  // number of contexts
@@ -2436,9 +2239,9 @@ void model1bit(Mixer& m, int brow) {
 
   // update the contexts (pixels surrounding the predicted one)
   r0+=r0+y;
-  r1+=r1+((buf(brow-1)>>(7-bpos))&1);
-  r2+=r2+((buf(brow+brow-1)>>(7-bpos))&1);
-  r3+=r3+((buf(brow+brow+brow-1)>>(7-bpos))&1);
+  r1+=r1+((buf(w-1)>>(7-bpos))&1);
+  r2+=r2+((buf(w+w-1)>>(7-bpos))&1);
+  r3+=r3+((buf(w+w+w-1)>>(7-bpos))&1);
   cxt[0]=r0&0x7|r1>>4&0x38|r2>>3&0xc0;
   cxt[1]=0x100+(r0&1|r1>>4&0x3e|r2>>2&0x40|r3>>1&0x80);
   cxt[2]=0x200+(r0&0x3f^r1&0x3ffe^r2<<2&0x7f00^r3<<5&0xf800);
@@ -2447,89 +2250,9 @@ void model1bit(Mixer& m, int brow) {
   cxt[5]=0x1000+(!r0&0x444|r1&0xC0C|r2&0xAE3|r3&0x51C);
   cxt[6]=0x2000+(r0&1|r1>>4&0x1d|r2>>1&0x60|r3&0xC0);
   cxt[7]=0x4000+(r0>>4&0x2AC|r1&0xA4|r2&0x349|!r3&0x14D);
+
   // predict
-  for ( i=0; i<N; ++i)
-    m.add(stretch(sm[i].p(t[cxt[i]])));
-    return;
-}
-
-//////////////////////////// bmpModel1 /////////////////////////////////
-
-// Model a 1-bit color uncompressed .bmp images. 
-
-void bmpModel1(Mixer& m) {
-  static int w=0, h=0; // size of image in bytes (pixels)
-  static int eoi=0;    // end of image
-  static int ibmp=0;
-  if (bpos==0 && pos>eoi) {
-    //  1-bit .bmp images
-    if (buf(54)=='B' && buf(53)=='M' && i4(44)<1079 && i4(40)==40 && i4(24)==0 && buf(26)==1) {
-      w=i4(36);  // image width
-      h=abs(i4(32));  // image height
-      ibmp=pos+i4(44)-54;
-    }
-    if (ibmp==pos && w>0 && h>0) {
-      ibmp=0;
-      printf("BMP(1-bit) %dx%d ",w,h);
-      w=(((w-1)>>5)+1)*4;
-      eoi=pos+(w*h);
-    }
-  }
-  if (pos>eoi) return;
-  model1bit(m,w);
-  return;
-}
-//////////////////////////// pbmModel /////////////////////////////////
-
-// Model a 1-bit color uncompressed .pbm images. 
-
-void pbmModel(Mixer& m) {
-  static int w=0, h=0; // size of image in bytes (pixels)
-  static int eoi=0;    // end of image
-  static int pbm=0;    // offset of pbm header
-  static int pbm_hdr[3];  // 0 - Width, 1 - Height, 2 - Max value
-  static int pbm_ptr;     // which record in header should be parsed next
-  int isws;
-  char v_buf[32];
-  int v_ptr;
-  if (!bpos && pos>eoi) {
-    if (!pbm && buf(3)=='P' && buf(2)=='4' && ISWHITESPACE(1)) { // Detect PBM file
-      pbm=pos;
-      pbm_ptr=0;
-      return; // PBM header just detected, not enough info to get header yet
-    } else if (pbm && pbm_ptr!=2) { // parse header records
-      for (int i=pbm; i<pos-1 && pbm_ptr<2; i++) {
-        while ((isws = ISWHITESPACE(pos-i)) && i<pos-1) i++; // Skip white spaces
-        if (isws) break; // buffer end is reached
-        if (buf(pos-i)=='#') {
-          do {i++;} while (!ISCRLF(pos-i) && i<pos-1);
-        } else {
-          v_ptr=0;
-          do {
-            v_buf[v_ptr++]=buf(pos-i);
-            i++;
-          } while (!(isws=ISWHITESPACE(pos-i)) && i<pos-1 && v_ptr<32);
-          if (isws) {
-            pbm_hdr[pbm_ptr++]=atoi(v_buf);
-            pbm=i; // move pointer 
-          }
-        }
-      }
-      if (pbm_ptr==2) {
-        w=pbm_hdr[0];
-        h=pbm_hdr[1];
-        if (w>0 && h>0) {
-          printf("PBM %dx%d ",w,h);
-          w=(w+7)/8;
-          eoi=pos+w*h;
-        }
-        pbm=0;
-      } else if (pos-pbm>1024) pbm=0; // maximal length of header
-    }
-  }
-  if (pos>eoi) return;
-  model1bit(m,w);
-  return;
+  for ( i=0; i<N; ++i) m.add(stretch(sm[i].p(t[cxt[i]])));
 }
 
 //////////////////////////// jpegModel /////////////////////////
@@ -3058,6 +2781,19 @@ int jpegModel(Mixer& m) {
   static int S,D;
   static int wmode;
 
+
+// 32-bit little endian number at buf(i)..buf(i-3)
+inline U32 i4(int i) {
+  assert(i>3);
+  return buf(i)+256*buf(i-1)+65536*buf(i-2)+16777216*buf(i-3);
+}
+
+// 16-bit
+inline int i2(int i) {
+  assert(i>1);
+  return buf(i)+256*buf(i-1);
+}
+
 inline int s2(int i) {
     return int(short(buf(i)+256*buf(i-1)));
 }
@@ -3420,8 +3156,7 @@ void nestModel(Mixer& m)
 
 //////////////////////////// contextModel //////////////////////
 
-typedef enum {DEFAULT, JPEG, BMPFILE1, BMPFILE4, BMPFILE8, BMPFILE24, TIFFFILE,
-              PGMFILE, PPMFILE, PBMFILE, RGBFILE, EXE, TEXT} Filetype;
+typedef enum {DEFAULT, JPEG, IMAGEHDR, IMAGE1, IMAGE8, IMAGE24, EXE, TEXT} Filetype;
 
 // This combines all the context models with a Mixer.
 
@@ -3432,16 +3167,23 @@ int contextModel2() {
   static U32 cxt[16];  // order 0-11 contexts
   static Filetype filetype=DEFAULT;
   static int size=0;  // bytes remaining in block
-//  static const char* typenames[4]={"", "jpeg ", "exe ", "text "};
+  static int imgw=0;  // image width for image blocks
+  static const char* typenames[8]={"", "jpeg ", "imghdr ", "1-bit ", "8-bit ",
+    "24-bit ", "exe ", "text "};
 
-  // Parse filetype and size
+  // Parse filetype, size and image width
   if (bpos==0) {
     --size;
     if (size==-1) filetype=(Filetype)buf(1);
-    if (size==-5) {
+    if (size==-5 && !(filetype==IMAGE1 || filetype==IMAGE8 || filetype==IMAGE24)) {
       size=buf(4)<<24|buf(3)<<16|buf(2)<<8|buf(1);
-//      if (filetype<=3) printf("(%s%d)", typenames[filetype], size);
+      printf("%sblock (%d bytes) ",typenames[filetype],size);
       if (filetype==EXE) size+=8;
+    }
+    if (size==-9) {
+      size=buf(8)<<24|buf(7)<<16|buf(6)<<8|buf(5);
+      imgw=buf(4)<<24|buf(3)<<16|buf(2)<<8|buf(1);
+      printf("%simage (%d bytes) ",typenames[filetype],size);
     }
   }
 
@@ -3450,8 +3192,12 @@ int contextModel2() {
 
   // Test for special file types
   int ismatch=ilog(matchModel(m));  // Length of longest matching context
+  if (filetype==IMAGE24) return im24bitModel(m, imgw), m.p();
+  if (filetype==IMAGE8) return im8bitModel(m, imgw), m.p();
+  if (filetype==IMAGE1) im1bitModel(m, imgw);
+
   int iswav=wavModel(m);  // number of channels and bits per sample if WAV is detected, else 0
-  if (filetype==JPEG){
+  if (filetype==JPEG) {
      int isjpeg=jpegModel(m);  // 1-257 if JPEG is detected, else 0
      if (isjpeg) {
         m.set(1, 8);
@@ -3460,29 +3206,6 @@ int contextModel2() {
        return m.p();
      }
   }
-  if (filetype==BMPFILE24 || filetype==TIFFFILE || filetype==PPMFILE){ 
-     int isbmp=im24bitModel(m); // Image width (bytes) if image detected, or 0
-     if (isbmp>0) {
-       static int col=0;
-       if (++col>=24) col=0;
-       m.set(2, 8);
-       m.set(col, 24);
-       m.set(buf(isbmp)+buf(3)>>4, 32);
-       m.set(c0, 256);
-       return m.p();
-     }
-  }
-  if (filetype==PGMFILE){
-     if (pgmModel(m)>0) return m.p(); // Image width (bytes) if PGM (P5,PGM_MAXVAL = 255) detected, or 0
-  }
-  if (filetype==BMPFILE8){ 
-     if (bmpModel8(m)>0) return m.p(); // Image width (bytes) if BMP8 detected, or 0 
-  }
-  if (filetype==RGBFILE){ 
-     if (rgbModel8(m)>0) return m.p(); // Image width (bytes) if RGB8 detected, or 0 
-  }
-  if (filetype==BMPFILE1) bmpModel1(m);
-  if (filetype==PBMFILE) pbmModel(m);
   if (iswav>0) {
     recordModel(m);  
     int bits=iswav&0xff;
@@ -3516,7 +3239,7 @@ int contextModel2() {
   rcm9.mix(m);
   rcm10.mix(m);
 
-  if (level>=4 && filetype!=BMPFILE1 && filetype!=PBMFILE) {
+  if (level>=4 && filetype!=IMAGE1) {
     sparseModel(m,ismatch,order);
     distanceModel(m);
     recordModel(m);
@@ -3526,7 +3249,6 @@ int contextModel2() {
     nestModel(m);
     if (filetype==EXE) exeModel(m);
   }
-
 
 
   order = order-2;
@@ -3749,8 +3471,12 @@ void Encoder::flush() {
 +    (((x) & 0x0000ff00) <<  8) | \
 +    (((x) & 0x000000ff) << 24))
 
+#define IMG_DET(type,start_pos,header_len,width,height) return imgt=(type),\
+imgh=(header_len),imgd=(width)*(height),imgw=(width),\
+fseek(in, start+(start_pos), SEEK_SET),IMAGEHDR
+
 // Detect EXE or JPEG data
-Filetype detect(FILE* in, int n, Filetype type) {
+Filetype detect(FILE* in, int n, Filetype type, int &imgw) {
   U32 buf1=0, buf0=0;  // last 8 bytes
   long start=ftell(in);
 
@@ -3768,7 +3494,16 @@ Filetype detect(FILE* in, int n, Filetype type) {
   // For JPEG detection
   int soi=0, sof=0, sos=0, app=0;  // position where found
   // For .RGB detection
-  int rgbi=0,rgb_x=0,rgb_size=0;
+  int rgbi=0,rgbx=0,rgby=0,rgbz=0;
+  // For .TIFF detection
+  int tiff=0;
+
+  // For image detection
+  static int imgh=0,imgd=0;  // image header/data size in bytes
+  static Filetype imgt;  // image type
+  if (imgh) return fseek(in, start+imgh, SEEK_SET),imgh=0,imgt;
+  else if (imgd) return fseek(in, start+imgd, SEEK_SET),imgd=0,DEFAULT;
+
   for (int i=0; i<n; ++i) {
     int c=getc(in);
     if (c==EOF) return (Filetype)(-1);
@@ -3806,19 +3541,13 @@ Filetype detect(FILE* in, int n, Filetype type) {
       if (p==16 && buf0!=0x28000000) bmp=0; //windows bmp?
       if (p==20) bmpx=bswap(buf0),bmp=((bmpx==0||bmpx>0x30000)?0:bmp); //width
       if (p==24) bmpy=abs(bswap(buf0)),bmp=((bmpy==0||bmpy>0x10000)?0:bmp); //height
-      if (p==27) imgbpp=c,bmp=((imgbpp!=1 && imgbpp!=4 && imgbpp!=8 && imgbpp!=24)?0:bmp);
+      if (p==27) imgbpp=c,bmp=((imgbpp!=1 && imgbpp!=8 && imgbpp!=24)?0:bmp);
       if (p==31) imgcomp=buf0,bmp=(imgcomp!=0?0:bmp);
-      if ((type==BMPFILE1 || type==BMPFILE4 || type==BMPFILE8 || type==BMPFILE24) && imgbpp!=0 && imgcomp==0) {
-        if (imgbpp==1) bsize=(((((bmpx-1)>>5)+1)*4*bmpy)+bmpimgoff);
-        if (imgbpp==4) bsize=(((((bmpx-1)>>3)+1)*4*bmpy)+bmpimgoff);
-        if (imgbpp==8) bsize=((bmpx+3&-4)*bmpy+bmpimgoff);
-        if (imgbpp==24) bsize=(((bmpx*3)+3&-4)*bmpy+bmpimgoff);
-        return fseek(in, start+bsize, SEEK_SET),DEFAULT;
+      if (imgbpp!=0 && imgcomp==0) {
+        if (imgbpp==1) IMG_DET(IMAGE1,bmp-1,bmpimgoff,(((bmpx-1)>>5)+1)*4,bmpy);
+        if (imgbpp==8) IMG_DET(IMAGE8,bmp-1,bmpimgoff,bmpx+3&-4,bmpy);
+        if (imgbpp==24) IMG_DET(IMAGE24,bmp-1,bmpimgoff,(bmpx*3)+3&-4,bmpy);
       }
-      if (imgbpp==1 && imgcomp==0) return fseek(in, start+bmp-1, SEEK_SET),BMPFILE1;
-      if (imgbpp==4 && imgcomp==0) return fseek(in, start+bmp-1, SEEK_SET),BMPFILE4;
-      if (imgbpp==8 && imgcomp==0) return fseek(in, start+bmp-1, SEEK_SET),BMPFILE8;
-      if (imgbpp==24 && imgcomp==0) return fseek(in, start+bmp-1, SEEK_SET),BMPFILE24;
     }
 
     // Detect .pbm .pgm .ppm image
@@ -3843,39 +3572,63 @@ Filetype detect(FILE* in, int n, Filetype type) {
       if (!pgmcomment) pgm_buf[pgm_ptr++]=c;
       if (pgm_ptr>=32) pgm=0;
       if (pgmcomment && c==0x0a) pgmcomment=0;
-      if (pgmw && pgmh && !pgmc && pgmn==4) {
-        if (type==PBMFILE) return fseek(in, start+((pgmw+7)/8)*pgmh+pgm+i-1, SEEK_SET),DEFAULT;
-        else return fseek(in, start+pgm-2, SEEK_SET),PBMFILE;
-      }
-      if (pgmw && pgmh && pgmc && pgmn==5) {
-        if (type==PGMFILE) return fseek(in, start+pgmw*pgmh+pgm+i-1, SEEK_SET),DEFAULT;
-        else return fseek(in, start+pgm-2, SEEK_SET),PGMFILE;
-      }
-      if (pgmw && pgmh && pgmc && pgmn==6) {
-        if (type==PPMFILE) return fseek(in, start+(pgmw*pgmh*3)+pgm+i-1, SEEK_SET),DEFAULT;
-        else return fseek(in, start+pgm-2, SEEK_SET),PPMFILE;
-      }
+      if (pgmw && pgmh && !pgmc && pgmn==4) IMG_DET(IMAGE1,pgm-2,i-pgm+3,(pgmw+7)/8,pgmh);
+      if (pgmw && pgmh && pgmc && pgmn==5) IMG_DET(IMAGE8,pgm-2,i-pgm+3,pgmw,pgmh);
+      if (pgmw && pgmh && pgmc && pgmn==6) IMG_DET(IMAGE24,pgm-2,i-pgm+3,pgmw*3,pgmh);
     }
 
     // Detect .rgb image
-    if ((buf0&0xFFFF)==0x01DA) rgbi=i,rgb_x,rgb_size=0;
+    if ((buf0&0xFFFF)==0x01DA) rgbi=i,rgbx=rgby=0;
     if (rgbi) {
       const int p=i-rgbi;
       if (p==1 && c!=0) rgbi=0;
-      if (p==2 && c!=1 && c!=2) rgbi=0;
+      if (p==2 && c!=1) rgbi=0;
       if (p==4 && (buf0&0xFFFF)!=1 && (buf0&0xFFFF)!=2 && (buf0&0xFFFF)!=3) rgbi=0;
-      if (p==6) if ((buf0&0xFFFF)>0) rgb_x=buf0&0xFFFF; else rgbi=0;
-      if (p==8) if ((buf0&0xFFFF)>0) rgb_size=(buf0&0xFFFF)*rgb_x+512; else rgbi=0;
-      if (p==10 && (buf0&0xFFFF)!=1) rgbi=0;
-      if (rgb_size!=0 && p>0 && (p>rgb_size)) {
-        if (type==RGBFILE) return fseek(in, start+rgb_size, SEEK_SET),DEFAULT;
-        else return fseek(in, start+rgbi-1, SEEK_SET),RGBFILE;
-      }
+      if (p==6) rgbx=buf0&0xffff,rgbi=(rgbx==0?0:rgbi);
+      if (p==8) rgby=buf0&0xffff,rgbi=(rgby==0?0:rgbi);
+      if (p==10) rgbz=buf0&0xffff,rgbi=((rgbz!=1&&rgbz!=3&&rgbz!=4)?0:rgbi);
+      if (rgbx && rgby && rgbz) IMG_DET(IMAGE8,rgbi-1,512,rgbx,rgby*rgbz);
     }
 
-    //TIFF support needed
-    // Detect .tiff file
+    // Detect .tif file header (8/24 bit color, not compressed).
+    if (buf0==0x49492a00) tiff=i;
+    if (tiff) {
+      if (i-tiff==4 && bswap(buf0)+tiff<n) {
+        long savedpos=ftell(in);
+        fseek(in, start+tiff+bswap(buf0)-3, SEEK_SET);
 
+        // read directory
+        int dirsize=getc(in);
+        int tifx=0,tify=0,tifz=0,tifc=0,tifofs=0,b[12];
+        if (getc(in)>0) tiff=0; else
+          for (int i=0; i<dirsize; i++) {
+            for (int j=0; j<12; j++) b[j]=getc(in);
+            if (b[11]==EOF) break;
+            int tag=b[0]+(b[1]<<8);
+            int tagfmt=b[2]+(b[3]<<8);
+            int taglen=b[4]+(b[5]<<8)+(b[6]<<16)+(b[7]<<24);
+            int tagval=b[8]+(b[9]<<8)+(b[10]<<16)+(b[11]<<24);
+            if (tagfmt==3||tagfmt==4) {
+              if (tag==256) tifx=tagval;
+              if (tag==257) tify=tagval;
+              if (tag==259) tifc=tagval; // 1 = no compression
+              if (tag==273) tifofs=tagval;
+              if (tag==277) tifz=tagval;
+            }
+          }
+        if (tiff && tifx && tify && (tifz==1 || tifz==3) && (tifc==1) && tifofs && tifofs+tiff<n) {
+          fseek(in, start+tiff+tifofs-3, SEEK_SET);
+          for (int j=0; j<4; j++) b[j]=getc(in);
+          tifofs=b[0]+(b[1]<<8)+(b[2]<<16)+(b[3]<<24);
+          if (tifofs && tifofs<65536 && tifofs+tiff<n) {
+            if (tifz==1) IMG_DET(IMAGE8,tiff-3,tifofs,tifx,tify);
+            if (tifz==3) IMG_DET(IMAGE24,tiff-3,tifofs,tifx*3,tify);
+          }
+        }
+        tiff=0;
+        fseek(in, savedpos, SEEK_SET);
+      }
+    }
 
     // Detect EXE if the low order byte (little-endian) XX is more
     // recently seen (and within 4K) if a relative to absolute address
@@ -3928,7 +3681,7 @@ void encode_exe(FILE* in, FILE* out, int len, int begin) {
   const int BLOCK=0x10000;
   Array<U8> blk(BLOCK);
   fprintf(out, "%c%c%c%c", len>>24, len>>16, len>>8, len); // size, MSB first
-  fprintf(out, "%c%c%c%c", begin>>24, begin>>16, begin>>8, begin); 
+  fprintf(out, "%c%c%c%c", begin>>24, begin>>16, begin>>8, begin);
 
   // Transform
   for (int offset=0; offset<len; offset+=BLOCK) {
@@ -4001,10 +3754,11 @@ int decode_exe(Encoder& en) {
 // <type> <size> and call encode_X to convert to type X.
 void encode(FILE* in, FILE* out, int n) {
   Filetype type=DEFAULT;
+  int imgw;  // image width of detected image
   int n1=n;
   long begin=ftell(in), begin1=begin;
   while (n>0) {
-    Filetype nextType=detect(in, n, type);
+    Filetype nextType=detect(in, n, type, imgw);
     long end=ftell(in);
     fseek(in, begin, SEEK_SET);
     if (end>begin1+n1) { // if some detection reports longer then actual size file is
@@ -4015,6 +3769,12 @@ void encode(FILE* in, FILE* out, int n) {
     if (len>0) {
       fprintf(out, "%c%c%c%c%c", type, len>>24, len>>16, len>>8, len);
       switch(type) {
+        case IMAGE1:
+        case IMAGE8:
+        case IMAGE24:  
+          fprintf(out, "%c%c%c%c", imgw>>24, imgw>>16, imgw>>8, imgw);
+          encode_default(in, out, len);
+          break;
         case EXE:  encode_exe(in, out, len, begin); break;
         default:   encode_default(in, out, len); break;
       }
@@ -4036,6 +3796,7 @@ int decode(Encoder& en) {
     len|=en.decompress()<<8;
     len|=en.decompress();
     if (len<0) len=1;
+    if (type==IMAGE1 || type==IMAGE8 || type==IMAGE24) for (int i=0;i<4;i++) en.decompress();
   }
   --len;
   switch (type) {
