@@ -4051,11 +4051,13 @@ void printStatus(int n, int size) {
 }
 
 void direct_encode_block(Filetype type, FILE *in, int len, int info, Encoder &en, int s1, int s2) {
-  en.compress(type);
-  en.compress(len>>24);
-  en.compress(len>>16);
-  en.compress(len>>8);
-  en.compress(len);
+  if (len>=0) {
+    en.compress(type);
+    en.compress(len>>24);
+    en.compress(len>>16);
+    en.compress(len>>8);
+    en.compress(len);
+  } else len=abs(len);
   if (info!=-1) {
     en.compress(info>>24);
     en.compress(info>>16);
@@ -4130,7 +4132,7 @@ void iter_transform(FILE *in, int filesize, Encoder &en, int it=MAX_ITER) {
           if (type==CD) {
             iter_transform(tmp, tmpsize, en, it);
           } else {
-            direct_encode_block(type, tmp, tmpsize, -1, en, s1, s2);
+            direct_encode_block(type, tmp, -tmpsize, -1, en, s1, s2);
           }
         }
         fclose(tmp);  // deletes
