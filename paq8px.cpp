@@ -3588,6 +3588,7 @@ Filetype detect(FILE* in, int n, Filetype type, int &info) {
         fseek(in, savedpos, SEEK_SET);
         if (!expand_cd_sector(data, 1)) {
           if (type!=CD) return fseek(in, start+cdi-7, SEEK_SET), CD;
+          if (type==CD && i-cdi>=38535168) return fseek(in, start+i-7, SEEK_SET), CD;
         } else cdi=0;
       }
       if (!cdi && type==CD) return fseek(in, start+(p==0?i-2352:i-p)-7, SEEK_SET), DEFAULT;
