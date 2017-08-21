@@ -3499,7 +3499,7 @@ Filetype detect(FILE* in, int n, Filetype type, int &imgw) {
   // For .TIFF detection
   int tiff=0;
   // For .TGA detection
-  int tga=0,tgax=0, tgay=0, tgaz=0;;
+  int tga=0,tgax=0,tgay=0,tgaz=0,tgapalette,tgapallen=0,tgaimgtype=0;
 
   // For image detection
   static int imgh=0,imgd=0;  // image header/data size in bytes
@@ -3596,40 +3596,48 @@ Filetype detect(FILE* in, int n, Filetype type, int &imgw) {
     // Detect .tif file header (8/24 bit color, not compressed).
     if (buf0==0x49492a00) tiff=i;
     if (tiff) {
-      if (i-tiff==4 && bswap(buf0)!=8 && bswap(buf0)+tiff<n) {
+      if (i-tiff==4 && bswap(buf0)+tiff<n) {
         long savedpos=ftell(in);
         fseek(in, start+tiff+bswap(buf0)-3, SEEK_SET);
 
         // read directory
         int dirsize=getc(in);
-        int tifx=0,tify=0,tifz=0,tifzb=0,tifc=0,tifofs=0,b[12];
-        if (getc(in)>0) tiff=0; else
+        int tifx=0,tify=0,tifz=0,tifzb=0,tifc=0,tifofs=0,tifofval=0,b[12];
+        if (getc(in)>0) tiff=0; 
+		else {
           for (int i=0; i<dirsize; i++) {
             for (int j=0; j<12; j++) b[j]=getc(in);
             if (b[11]==EOF) break;
             int tag=b[0]+(b[1]<<8);
             int tagfmt=b[2]+(b[3]<<8);
             int taglen=b[4]+(b[5]<<8)+(b[6]<<16)+(b[7]<<24);
-            int tagval=b[8]+(b[9]<<8)+(b[10]<<16)+(b[11]<<24);
+			int tagval=b[8]+(b[9]<<8)+(b[10]<<16)+(b[11]<<24);
             if (tagfmt==3||tagfmt==4) {
               if (tag==256) tifx=tagval;
               else if (tag==257) tify=tagval;
-			  else if (tag==258) tifzb=tagval; // bits per component
+			  else if (tag==258) tifzb=taglen==1?tagval:8; // bits per component
               else if (tag==259) tifc=tagval; // 1 = no compression
-              else if (tag==273) tifofs=tagval;
+			  else if (tag==273) {
+				  if (tagfmt==3) tiff=0;            // stop if offsets stored in 16-bit
+				  else if (taglen>1) tifofs=tagval; // read later
+				  else tifofval=tagval;             // stored by value
+			  }
               else if (tag==277) tifz=tagval; // components per pixel
             }
           }
-        if (tiff && tifx && tify && tifzb && (tifz==1 || tifz==3) && (tifc==1) && tifofs && tifofs+tiff<n) {
-          fseek(in, start+tiff+tifofs-3, SEEK_SET);
-          for (int j=0; j<4; j++) b[j]=getc(in);
-          tifofs=b[0]+(b[1]<<8)+(b[2]<<16)+(b[3]<<24);
-          if (tifofs && tifofs<65536 && tifofs+tiff<n) {
+		}
+        if (tiff && tifx && tify && tifzb && (tifz==1 || tifz==3) && (tifc==1) && (tifofval || (tifofs && tifofs+tiff<n))) {
+		  if (!tifofval) {
+            fseek(in, start+tiff+tifofs-3, SEEK_SET);
+            for (int j=0; j<4; j++) b[j]=getc(in);
+			tifofval=b[0]+(b[1]<<8)+(b[2]<<16)+(b[3]<<24);
+		  }
+          if (tifofval && tifofval<65536 && tifofval+tiff<n) {
 			if (tifz==1) {
-				if (tifzb==1) IMG_DET(IMAGE1,tiff-3,tifofs,((tifx-1)>>3)+1,tify);
-				else if (tifzb==8) IMG_DET(IMAGE8,tiff-3,tifofs,tifx,tify);
+				if (tifzb==1) IMG_DET(IMAGE1,tiff-3,tifofval,((tifx-1)>>3)+1,tify);
+				else if (tifzb==8) IMG_DET(IMAGE8,tiff-3,tifofval,tifx,tify);
 			}
-			else if (tifz==3 && tifzb==8) IMG_DET(IMAGE24,tiff-3,tifofs,tifx*3,tify);
+			else if (tifz==3 && tifzb==8) IMG_DET(IMAGE24,tiff-3,tifofval,tifx*3,tify);
           }
         }
         tiff=0;
@@ -3638,20 +3646,24 @@ Filetype detect(FILE* in, int n, Filetype type, int &imgw) {
     }
 
 	// Detect .tga image
-	if (buf0==0x00000200) tga=i;
+	const char *cbuf = (char*)&buf0;
+	if (cbuf[3]==0 && (cbuf[2]==0 || cbuf[2]==1) && (cbuf[1]>=1 && 
+			cbuf[1]<=3) && cbuf[0]==0) tga=i,tgapalette=buf0>>24,tgaimgtype=buf0>>16;
 	if (tga) {
 		const int p=i-tga;
-		if (p==4) tga=(bswap(buf0)&0xFF)==0?tga:0;
-		else if (p==5) tga=(bswap(buf0)&0xFFFF)==0?tga:0;
-		else if (p==8) tga=(bswap(buf0)&0xFFFF)==0?tga:0;
-		else if (p==10) tga=(bswap(buf0)&0xFFFF)==0?tga:0;
-		else if (p==12) tgax=bswap(buf0)&0xFFFF;
-		else if (p==14) tgay=bswap(buf0)&0xFFFF;
-		else if (p==16) tgaz=bswap(buf0)&0xFF;
+		if (p==4) tga=(buf0&0xFF000000)==0?tga:0;
+		else if (p==5) tgapallen=(bswap(buf0)&0xFFFF);
+		else if (p==8) tga=(buf0&0xFFFF0000)==0?tga:0;
+		else if (p==10) tga=(buf0&0xFFFF0000)==0?tga:0;
+		else if (p==12) tgax=(bswap(buf0)&0xFFFF);
+		else if (p==14) tgay=(bswap(buf0)&0xFFFF);
+		else if (p==16) tgaz=(bswap(buf0)&0xFF);
 		if (tgax && tgay && tgaz) {
-			if (tgaz==24) IMG_DET(IMAGE24,tga-3,18,tgax*3,tgay);
+			if (tgaz==8) IMG_DET(IMAGE8,tga-3,18+tgapallen,tgax,tgay);
+			if (tgaz==24) IMG_DET(IMAGE24,tga-3,18+tgapallen,tgax*3,tgay);
+			tga=0;
 		}
-		if (p>20) tga=0;
+		if (p>18) tga=0;
 	}
 
     // Detect EXE if the low order byte (little-endian) XX is more
