@@ -4073,12 +4073,11 @@ void direct_encode_block(Filetype type, FILE *in, int len, int info, Encoder &en
   printf("\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b");
 }
 
-void iter_transform(FILE *in, int filesize, Encoder &en, int it=MAX_ITER) {
+void iter_transform(FILE *in, int filesize, Encoder &en, int it=MAX_ITER, int s1=0, int s2=0) {
   static const char* typenames[9]={"default", "jpeg", "hdr",
     "1-bit-image", "8-bit-image", "24-bit-image", "audio", "exe", "cd"};
   static const char* audiotypes[4]={"8-bit mono", "8-bit stereo", "16-bit mono",
     "16-bit stereo"};
-  static int s1=0, s2=0;
   Filetype type=DEFAULT;
   int info;  // image width or audio type
   int n=filesize, blnum=0;
@@ -4130,7 +4129,7 @@ void iter_transform(FILE *in, int filesize, Encoder &en, int it=MAX_ITER) {
           rewind(tmp);
           for (j=0; j<5; ++j) en.compress(getc(tmp));
           if (type==CD) {
-            iter_transform(tmp, tmpsize, en, it);
+            iter_transform(tmp, tmpsize, en, it, s1, s2);
           } else {
             direct_encode_block(type, tmp, -tmpsize, -1, en, s1, s2);
           }
