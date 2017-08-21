@@ -2819,6 +2819,7 @@ void wavModel(Mixer& m, int info) {
   static SmallStationaryContextMap scm1(SC), scm2(SC), scm3(SC), scm4(SC), scm5(SC), scm6(SC), scm7(SC);
   static ContextMap cm(MEM*4, 10);
   static int bits, channels, w;
+  static int z1, z2, z3, z4, z5;
 
   if (!bpos && !blpos) {
     bits=((info%4)/2)*8+8;
@@ -2830,6 +2831,7 @@ void wavModel(Mixer& m, int info) {
       for (k=0; k<=S+D; k++) for (l=0; l<=S+D; l++) F[k][l][j]=0, L[k][l]=0;
       F[1][0][j]=1;
       n[j]=counter[j]=pr[2][j]=pr[1][j]=pr[0][j]=0;
+      z1=z2=z3=z4=z5=0;
     }
   }
   // Select previous samples and predicted sample as context
@@ -2838,6 +2840,7 @@ void wavModel(Mixer& m, int info) {
     const int msb=ch%(bits>>3);
     const int chn=ch/(bits>>3);
     if (!msb) {
+      z1=X1(1), z2=X1(2), z3=X1(3), z4=X1(4), z5=X1(5);
       k=X1(1);
       for (l=0; l<=min(S,counter[chn]-1); l++) F[0][l][chn]=F[0][l][chn]*a+X1(l+1)*k;
       for (l=1; l<=min(D,counter[chn]); l++) F[0][l+S][chn]=F[0][l+S][chn]*a+X2(l+1)*k;
@@ -2881,11 +2884,11 @@ void wavModel(Mixer& m, int info) {
       pr[0][chn]=int(floor(sum));
       counter[chn]++;
     }
-    const int x1=buf(1)^(wmode==4?128:0)-128, x2=buf(2)^(wmode==4?128:0)-128, y1=pr[0][chn], y2=pr[1][chn], y3=pr[2][chn];
-    int t, z1, z2, z3, z4, z5;
-    if (bits==16 && wmode<6) t=(msb!=0), z1=s2(w+t), z2=s2(w*2+t), z3=s2(w*3+t), z4=s2(w*4+t), z5=s2(w*5+t);
-    else if (bits==8) t=1, z1=buf(w), z2=buf(w*2), z3=buf(w*3), z4=buf(w*4), z5=buf(w*5);
-    else t=(msb==0), z1=t2(w+(1-t)), z2=t2(w*2+(1-t)), z3=t2(w*3+(1-t)), z4=t2(w*4+(1-t)), z5=t2(w*5+(1-t));
+    const int y1=pr[0][chn], y2=pr[1][chn], y3=pr[2][chn];
+    int x1=buf(1), x2=buf(2);
+    if (wmode==4) x1^=128, x2^=128;
+    if (bits==8) x1-=128, x2-=128;
+    const int t=((bits==8) || ((!msb)^(wmode<6)));
     i=ch<<4;
     if ((msb)^(wmode<6)) {
       cm.set(hash(++i, y1&0xff));
@@ -2928,7 +2931,7 @@ void wavModel(Mixer& m, int info) {
   scm6.mix(m);
   scm7.mix(m);
   cm.mix(m);
-  recordModel(m);
+  if (level>=4) recordModel(m);
   static int col=0;
   if (++col>=w*8) col=0;
   m.set(3, 8);
