@@ -1,0 +1,363 @@
+=============================================
+ Info about PAQ8PX versions of PAQ8 archiver 
+=============================================
+
+Licence:
+ - Free under GPL, http://www.gnu.org/licenses/gpl.txt
+
+Authors:
+ - Matt Mahoney, Serge Osnach, Alexander Ratushnyak, Bill Pettis,
+   Przemyslaw Skibinski, Matthew Fite, wowtiger, Andrew Paterson,
+   Jan Ondrus, Andreas Morphis, Pavel L. Holoborodko, KZ., Simon Berger,
+   Neill Corlett
+
+WWW:
+ - http://www.cs.ft.edu/~mmahoney/compression/ (paq)
+ - http://encode.ru/forum/showthread.php?t=342 (paq8px)
+
+Differencies from PAQ8P:
+ - Added nestModel, wordModel and im1bitModel from paq8p3
+ - Improved wavModel, jpegModel, im24bitModel
+ - Changes in sparseModel, exeModel and indirectModel
+ - Improved handling with images and audio (compressed in blocks)
+ - Improved detection of TIFF, BMP and RGB images
+ - New detection of uncompressed image formats: PBM, PPM, TGA
+ - New detection of uncompressed audio formats: MOD, S3M, AIFF
+ - New detection and transformation of CD sectors (mode 1+2 - 2352 bytes) in CD images
+ - Percentage and block segmentation information is displayed during compression
+ - Modifications in exe detection and e8/e9 exe filter
+ - Fixed some bugs
+
+-------------------------------------------------------------------------------
+
+Version paq8px_v66 (date: 2009-10-29)
+- Fixed bug: When comparing 24-bit image wrong difference position could be reported
+- Improved 24-bit image model
+-------------------------------------------------------------------------------
+
+Version paq8px_v65 (date: 2009-10-28)
+- Fixed bug : Compression/transformation of 24-bit images in BMP format with
+  width not divisible by 4
+-------------------------------------------------------------------------------
+
+Version paq8px_v64 (date: 2009-08-17)
+- Warnings produced by -DNOASM and -O2 switches in GCC 4.4.0 removed
+-------------------------------------------------------------------------------
+
+Version paq8px_v63 (date: 2009-08-16)
+- Minor source code changes (some parentheses added)
+-------------------------------------------------------------------------------
+
+Version paq8px_v62 (date: 2009-08-16)
+- Removed some compiler warnings
+- Fixed bug: Wrong brackets in NestModel and MOD detection
+-------------------------------------------------------------------------------
+
+Version paq8px_v61 (date: 2009-07-25)
+- Added color transformation for 24-bit image data
+-------------------------------------------------------------------------------
+
+Version paq8px_v60 (date: 2009-06-20)
+- Changes in wavModel
+-------------------------------------------------------------------------------
+
+Version paq8px_v59 (date: 2009-06-19)
+- Added internal C99 compliant round() function. Compile with '-DLPROUND_ON' to enable.
+-------------------------------------------------------------------------------
+
+Version paq8px_v58 (date: 2009-06-17)
+- Changed end of exe-block detection (size of no x86 code increased from 4kb to 16kb)
+- Minor changes in block information output
+-------------------------------------------------------------------------------
+
+Version paq8px_v57 (date: 2009-06-13)
+- Instead of converting to float sum is rounded
+-------------------------------------------------------------------------------
+
+Version paq8px_v56 (date: 2009-06-13)
+- Before value from sum is used it is coverted to float
+-------------------------------------------------------------------------------
+
+Version paq8px_v55 (date: 2009-06-13)
+- New version of wavModel
+-------------------------------------------------------------------------------
+
+Version paq8px_v54 (date: 2009-06-11)
+- Added new decompression system from Simon Berger/paq8q
+- New style of block segmentation information during compression
+-------------------------------------------------------------------------------
+
+Version paq8px_v53 (date: 2009-06-06)
+- Changed xor-parameter of exe transformation (old: 64=01000000, new: 176=10110000)
+-------------------------------------------------------------------------------
+
+Version paq8px_v52 (date: 2009-06-05)
+- Fixed bug in CD detection
+-------------------------------------------------------------------------------
+
+Version paq8px_v51 (date: 2009-06-05)
+- Fixed bug in decode()
+-------------------------------------------------------------------------------
+
+Version paq8px_v50 (date: 2009-06-05)
+- Improved exe detection
+-------------------------------------------------------------------------------
+
+Version paq8px_v49 (date: 2009-06-04)
+- Fixed bug: Wrong percentage when more files were compressed
+-------------------------------------------------------------------------------
+
+Version paq8px_v48 (date: 2009-06-04)
+- Fixed bug in encoding exe blocks: Block header was written twice which caused
+  that exeModel was not used
+-------------------------------------------------------------------------------
+
+Version paq8px_v47 (date: 2009-06-03)
+- Added support for mode 2/form 2 CD sectors (experimental)
+- Fixed bug in recursion
+- Fixed bug with wrong detection of special block types in first CD sector
+-------------------------------------------------------------------------------
+
+Version paq8px_v46 (date: 2009-06-02)
+- Added support for CD-ROM Mode 2 XA (CD-ROM/XA) Form 1 (2352 bytes) sectors
+- Percentage shows again progress for entire files
+-------------------------------------------------------------------------------
+
+Version paq8px_v45 (date: 2009-06-01)
+- Detection images/audio/exe/cd/jpeg blocks inside transformed cd block data. It works
+  recursively (maximal deep of recursion is set to 5 - controlled by #define MAX_ITER 5)
+- Each CD block now contains subblocks
+- Meaning of percentage is changed - it shows progress for individual block
+-------------------------------------------------------------------------------
+
+Version paq8px_v44 (date: 2009-06-01)
+- Fixed bug: wrong size of encoded CD block
+-------------------------------------------------------------------------------
+
+Version paq8px_v43 (date: 2009-06-01)
+- Improved CD sectors transformation - addresses are not saved which improves
+  efficiency of transformation and allow possibility for future detection images/audio
+  inside CD image data
+-------------------------------------------------------------------------------
+
+Version paq8px_v42 (date: 2009-05-31)
+- Fixed bug: Special models for special blocks (image/audio) wasn't used when found after
+  CD block due to wrong/missing size of encoded cd block calculation.
+-------------------------------------------------------------------------------
+
+Version paq8px_v41 (date: 2009-05-30)
+- Disabled detecting anything else when CD block is detected.
+-------------------------------------------------------------------------------
+
+Version paq8px_v40 (date: 2009-05-30)
+- Limited maximal size of cd block to 38535168 (16384 sectors) so larger cd images are
+  divided into more blocks and user can see progress
+-------------------------------------------------------------------------------
+
+Version paq8px_v39 (date: 2009-05-30)
+- Fixed bug: Conflict in CD and EXE detection (exe detected inside cd image
+  could cause bad things)
+-------------------------------------------------------------------------------
+
+Version paq8px_v38 (date: 2009-05-30)
+- Experimental detection and transformation of CD sectors in CD images (only type #1) as
+  done in ECM -> sequence of sectors is detected as new block type - cd
+- Functions for computing ECC and EDC are taken from UNECM decoder (GPL) by Neill Corlett
+-------------------------------------------------------------------------------
+
+Version paq8px_v37 (date: 2009-05-28)
+- Improved exe filter. Relative to absolute address conversion is now performed also
+  for conditional jumps (for 0x0f80..0x0f8f instructions)
+-------------------------------------------------------------------------------
+
+Version paq8px_v36 (date: 2009-05-26)
+- Removed two writes (and reads) of size of exe-block
+- Changes in sparseModel, exeModel, indirectModel, nestModel which should improve
+  compression of executables a bit
+-------------------------------------------------------------------------------
+
+Version paq8px_v35 (date: 2009-05-23)
+- Improved AIFF detection - can skip padding byte correctly
+- Corrected handling with 8-bit audio in AIFF format
+- Max size of extra blocks before sound data in AIFF is 1024 now
+- Fixed another bug in wavmodel (fix from v22 wasn't optimal for some files)
+-------------------------------------------------------------------------------
+
+Version paq8px_v34 (date: 2009-05-23)
+- Improved AIFF detection. It couldn't detect samples because of some blocks
+  before the sound data that will be counted to the header now. Max size is 512 here
+
+-------------------------------------------------------------------------------
+
+Version paq8px_v33 (date: 2009-05-22)
+- Fixed another bug in wavmodel (fix from v22 wasn't optimal for some files)
+-------------------------------------------------------------------------------
+
+Version paq8px_v32 (date: 2009-05-22)
+- Fixed bug in wavmodel
+- You can use -0 to -3 switch for faster wave compression now
+-------------------------------------------------------------------------------
+
+Version paq8px_v31 (date: 2009-05-21)
+- Added experimental AIFF detection and compression
+- Some small modification in handling 8-bit audio data (wavmodel)
+-------------------------------------------------------------------------------
+
+Version paq8px_v30 (date: 2009-05-21)
+- Removed some redundant code from compress procedure
+- Added direct_encode_block() procedure for repeated task in compress() procedure
+-------------------------------------------------------------------------------
+
+Version paq8px_v29 (date: 2009-05-21)
+- Changed the structure of the compress function (It now stops using encode_default
+  instead it compresses directly from input file.
+- In files without EXE data there is no temporary file anymore and surely also no comparing.
+-------------------------------------------------------------------------------
+
+Version paq8px_v28 (date: 2009-05-20)
+- Fixed bug: String "Compressing..." was printed twice sometimes
+-------------------------------------------------------------------------------
+
+Version paq8px_v27 (date: 2009-05-20)
+- Merged void encode and void compress procedures
+-------------------------------------------------------------------------------
+
+Version paq8px_v26 (date: 2009-05-20)
+- Block segmentation information is printed before actual compression starts
+- Percentage is displayed during compression
+-------------------------------------------------------------------------------
+
+Version paq8px_v25 (date: 2009-05-19)
+- Different handling of 8-bit WAVE data. (samples were interpreted as number 0..255 in
+  previous versions -> current version -128..127) -> improves compression on most files
+-------------------------------------------------------------------------------
+
+Version paq8px_v24 (date: 2009-05-19)
+- Fixed bug in S3M detection (one variable wasn't properly initialized)
+-------------------------------------------------------------------------------
+
+Version paq8px_v23 (date: 2009-05-19)
+- Added experimental S3M modules detection
+-------------------------------------------------------------------------------
+
+Version paq8px_v22 (date: 2009-05-18)
+- Fixed bug in wavmodel
+-------------------------------------------------------------------------------
+
+Version paq8px_v21 (date: 2009-05-16)
+- Changed some code in wavmodel to improve its speed
+-------------------------------------------------------------------------------
+
+Version paq8px_v19 (date: 2009-05-12)
+- Fixed bug in MOD detection (broken detecting files with 64 patterns)
+- More MODs can be recognized (those marked with M.K. 8CHN 6CHN FLT4 or FLT8)
+-------------------------------------------------------------------------------
+
+Version paq8px_v18 (date: 2009-05-12)
+- Increased tolerance for TIFF files (start of raw image data) from 64kb to 256kb
+- Experimental MOD file detection and compression
+-------------------------------------------------------------------------------
+
+Version paq8px_v17 (date: 2009-05-12)
+- Removed file segmenting by BLOCKS=MEM*128 (as is in paq8p3) -> entire file
+  is processed as one block
+- Some source code cleaning (removed some spaces and tabs)
+- Function int wavmodel changed to void wavmodel (not returning value)
+-------------------------------------------------------------------------------
+
+Version paq8px_v16 (date: 2009-05-12)
+- Fixed JPEG detection
+-------------------------------------------------------------------------------
+
+Version paq8px_v15 (date: 2009-05-10)
+- WAVE detection can skip metadata now
+-------------------------------------------------------------------------------
+
+Version paq8px_v14 (date: 2009-05-09)
+- Uncompressed audio 8-bit/16-bit mono/stereo is now compressed in separate AUDIO blocks
+- Audio file is divided into HDR and AUDIO block (images into HDR and IMAGEx)
+- Extra information (like width for images) saved in compressed stream is
+  BitsPerSample+Channels (possible values are 9, 10, 17, 18)
+- Found and fixed problem for images blocks - metadata (=size of block, image width)
+  were compressed using special models (image models)
+-------------------------------------------------------------------------------
+
+Version paq8px_v13 (date: 2009-05-09)
+- Fixed bug in TGA detection - monochrome TGA works again
+- Some code modified in TIFF detection
+-------------------------------------------------------------------------------
+
+Version paq8px_v12 (date: 2009-05-09)
+- Fixed bug in TGA detection
+- Some code changed in BMP, RGB and TIFF detection
+-------------------------------------------------------------------------------
+
+Version paq8px_v11 (date: 2009-05-09)
+- Added tga (8-bit) UNTESTED - please verify. Didn't find any 8-bit tga file
+- Fixed tiff reading of offset stored by value (partcount=1)
+- Fixed now the tiff stream won't be read if offsets stored in 16-bit (also not worth to implement)
+- Removed bad tiff directory check
+-------------------------------------------------------------------------------
+
+Version paq8px_v10 (date: 2009-05-08)
+- Added 24-bit tga compression
+- Added More checks for Tiff
+- Added 1-bit Tiff compression
+- Changed many if[...]if[...] to if[...]else if[...] in detect
+- Fixed compiling error with MSVC++ because of unknown abs type
+-------------------------------------------------------------------------------
+
+Version paq8px_v9 (date: 2009-05-08)
+- Now there are only im24bitModel, im8bitModel and im1bitModel instead of im24bitModel,
+  pgmModel, bmpModel8, rgbModel8, bmpModel1 and pbmModel
+- All image header detection is removed from models (only place for image detection
+  is detect procedure)
+- Every image is divided into 2 blocks - IMAGEHDR (header) and IMAGEx (where x is 1, 8 or 24)
+- Experimental improved TIFF detection (should detect uncompressed tiff created
+  by IrfanView)
+- RGB detection can detect images with more chanels (3 or 4) - chanels are compressed
+  independently using im8bitModel (IMAGE8 block)
+- During compression can't be printed such info BMP(width x height), instead of
+  it program prints info about blocks: blocktype(size in bytes)
+-------------------------------------------------------------------------------
+
+Version paq8px_v8 (date: 2009-05-07)
+- some code modified in 1-bit/8-bit/24-bit BMP detection
+-------------------------------------------------------------------------------
+
+Version paq8px_v7 (date: 2009-05-06)
+- Bmp detection for negative height was broken
+-------------------------------------------------------------------------------
+
+Version paq8px_v6 (date: 2009-05-05)
+- Fixed: Compressing using -8 switch was broken
+- Fixed: You could use (not working) -9 switch in previous versions
+-------------------------------------------------------------------------------
+
+Version paq8px_v5 (date: 2009-05-04)
+- Small modifications in exe detection and e8/e9 exe filter
+-------------------------------------------------------------------------------
+
+Version paq8px_v4 (date: 2009-05-01)
+- Fixed problem with compressing files larger than 1 block
+-------------------------------------------------------------------------------
+
+Version paq8px_v3 (date: 2009-04-29)
+- Fixed bug in pgm/pbm/ppm detection
+-------------------------------------------------------------------------------
+
+Version paq8px_v2 (date: 2009-04-26)
+- Fixed bug: detection reports longer then actual size file is (WcgopFsd.dll)
+- Better BMP detection (can detect 2359362 bytes 1024x768 bitmap)
+- Modified JPEG model (from paq8p2)
+-------------------------------------------------------------------------------
+
+Version paq8px_v1 (date: 2009-04-25)
+- Added nestModel from paq8p3
+- Modified wordModel from paq8p3
+- Modified .pbm, .pgm, .ppm, .bmp, .rgb detection (from paq8p3)
+- Modified WAV model (from paq8p_)
+- Renamed bmpModel (24-bit) to im24bitModel + .ppm compression added (from paq8p3)
+- Added bmpModel1 (1-bit) and PBM models (from paq8p3)
+- Removed pic model
+-------------------------------------------------------------------------------
