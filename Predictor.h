@@ -9,7 +9,7 @@
 #include <cassert>
 #include "utils.h"
 #include "APM1.h"
-#include "models.h"
+#include "models/models.h"
 
 class Predictor {
     int pr;  // next prediction
