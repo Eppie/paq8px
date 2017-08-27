@@ -43,5 +43,6 @@ inline int sqrbuf(int i) {
 #include "dmcModel.h"
 #include "nestModel.h"
 #include "exeModel.h"
+#include "contextModel2.h"
 
 #endif //PAQ8PX_MODELS_H
